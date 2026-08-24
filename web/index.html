@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Dashboard</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <img id="brandLogo" src="logo.png" alt="Central Studio SM" class="brand-logo">
+      <h1>Dashboard</h1>
+      <div id="generatedAt" class="timestamp"></div>
+      <button id="refreshBtn" class="refresh-btn">Refresh</button>
+    </header>
+
+    <div id="loading" class="loading">Loading…</div>
+    <div id="errorBox" class="error-box" style="display:none;"></div>
+
+    <main id="content" style="display:none;">
+      <section>
+        <h2>Needs a Call <span class="count" id="needsCallCount"></span></h2>
+        <div id="needsCallList" class="card-list"></div>
+      </section>
+
+      <section>
+        <h2>Already Called <span class="count" id="calledCount"></span></h2>
+        <div id="calledList" class="card-list"></div>
+      </section>
+
+      <section>
+        <h2>Website Inquiries Needing Follow-up <span class="count" id="inquiryCount"></span></h2>
+        <div id="inquiryList" class="card-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="inquiryModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3 id="modalName"></h3>
+      <textarea id="modalNote" class="modal-note" placeholder="Note (optional) — e.g. left voicemail, will try again Thursday"></textarea>
+      <div class="modal-actions">
+        <button id="modalCloseInquiry" class="action-btn call">Close Inquiry</button>
+        <button id="modalLeaveOpen" class="action-btn undo">Leave Open for Follow-up</button>
+      </div>
+      <button id="modalCancel" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
