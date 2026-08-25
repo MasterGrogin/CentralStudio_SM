@@ -10,6 +10,8 @@
   --border: #e1e7ea;
   --danger: #dc2626;
   --radius: 12px;
+  --gain: #2ea394;
+  --loss: #dc2626;
 }
 
 * { box-sizing: border-box; }
@@ -23,6 +25,18 @@ body {
 }
 
 #app { max-width: 720px; margin: 0 auto; padding: 0 16px 48px; }
+
+#dashboardGrid { display: block; }
+
+@media (min-width: 900px) {
+  #app { max-width: 1600px; }
+  #dashboardGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 680px) minmax(480px, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+}
 
 header {
   display: flex;
@@ -219,9 +233,40 @@ h2 {
 }
 
 .card.is-needs-call { border-left-color: var(--teal); }
-.card.is-called { border-left-color: var(--slate); opacity: 0.85; }
+.card.is-called { border-left-color: var(--slate); }
 .card.is-inquiry { border-left-color: var(--teal); }
 .card.is-inquiry.is-followed-up { border-left-color: var(--slate); }
+
+.card { padding: 0; overflow: hidden; }
+.card-summary { padding: 14px 16px; cursor: pointer; }
+.card-summary .card-date { white-space: normal; margin-top: 2px; }
+.card-body { padding: 14px 16px; }
+
+.expand-caret {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+
+.card-detail {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+  padding-top: 12px;
+}
+
+.detail-grid { display: flex; flex-direction: column; gap: 6px; }
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.detail-label { color: var(--text-muted); }
+.detail-value { color: var(--text); text-align: right; }
 
 .notes-details { margin-top: 8px; }
 .notes-summary {
@@ -309,6 +354,121 @@ h2 {
   font-family: 'Montserrat', sans-serif;
   font-size: 14px;
   resize: vertical;
+  box-sizing: border-box;
+}
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 900px) {
+  .stat-tiles { grid-template-columns: repeat(4, 1fr); }
+  .revenue-table { font-size: 13px; }
+  .revenue-table th, .revenue-table td { padding: 10px 16px; }
+}
+
+.stat-tile {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--slate);
+}
+
+.stat-value.gain { color: var(--gain); }
+.stat-value.loss { color: var(--loss); }
+
+.stat-subvalue {
+  font-style: italic;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.revenue-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.revenue-table th,
+.revenue-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.revenue-table th:first-child,
+.revenue-table td:first-child {
+  text-align: left;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.revenue-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+  background: var(--bg);
+}
+
+.revenue-table tbody tr:last-child td { border-bottom: none; }
+
+.revenue-table .cell-muted { color: var(--text-muted); }
+.revenue-table .cell-gain { color: var(--gain); font-weight: 600; }
+.revenue-table .cell-loss { color: var(--loss); font-weight: 600; }
+
+.revenue-table tr.current-month td:first-child {
+  border-left: 3px solid var(--teal);
+  padding-left: 7px;
+}
+
+.modal-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.modal-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 14px;
   box-sizing: border-box;
 }
 

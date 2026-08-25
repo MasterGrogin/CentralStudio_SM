@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio Dashboard</title>
-<link rel="icon" href="logo.png">
+<link rel="icon" href="icon.jpg">
+<link rel="apple-touch-icon" href="icon.jpg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Studio Dashboard">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
@@ -22,22 +25,84 @@
     <div id="loading" class="loading">Loading…</div>
     <div id="errorBox" class="error-box" style="display:none;"></div>
 
-    <main id="content" style="display:none;">
-      <section>
-        <h2>Needs a Call <span class="count" id="needsCallCount"></span></h2>
-        <div id="needsCallList" class="card-list"></div>
-      </section>
+    <div id="dashboardGrid">
+      <main id="content" style="display:none;">
+        <section>
+          <h2>Needs a Call <span class="count" id="needsCallCount"></span></h2>
+          <div id="needsCallList" class="card-list"></div>
+        </section>
 
-      <section>
-        <h2>Already Called <span class="count" id="calledCount"></span></h2>
-        <div id="calledList" class="card-list"></div>
-      </section>
+        <section>
+          <h2>Vetted Upcoming Rentals <span class="count" id="vettedCount"></span></h2>
+          <div id="vettedList" class="card-list"></div>
+        </section>
 
-      <section>
-        <h2>Website Inquiries Needing Follow-up <span class="count" id="inquiryCount"></span></h2>
-        <div id="inquiryList" class="card-list"></div>
-      </section>
-    </main>
+        <section>
+          <h2>Website Inquiries Needing Follow-up <span class="count" id="inquiryCount"></span></h2>
+          <div id="inquiryList" class="card-list"></div>
+        </section>
+      </main>
+
+      <aside id="statsPanel">
+        <section>
+          <h2>Revenue <span class="count" id="revenueYearLabel"></span></h2>
+          <div id="revenueLoading" class="loading">Loading…</div>
+          <div id="revenueErrorBox" class="error-box" style="display:none;"></div>
+
+          <div id="revenueContent" style="display:none;">
+            <div class="stat-tiles">
+              <div class="stat-tile">
+                <div class="stat-label">YTD This Year</div>
+                <div class="stat-value" id="statYtd"></div>
+              </div>
+              <div class="stat-tile">
+                <div class="stat-label">Avg / Month</div>
+                <div class="stat-value" id="statAvg"></div>
+                <div class="stat-subvalue" id="statLastYearAvg"></div>
+              </div>
+              <div class="stat-tile">
+                <div class="stat-label">Last Year Total</div>
+                <div class="stat-value" id="statLastYearTotal"></div>
+              </div>
+              <div class="stat-tile">
+                <div class="stat-label">YTD vs Last Year</div>
+                <div class="stat-value" id="statComparison"></div>
+              </div>
+            </div>
+
+            <div class="table-scroll">
+              <table class="revenue-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th id="thisYearHeader"></th>
+                    <th>% Prev Mo</th>
+                    <th>% LY Avg</th>
+                    <th id="lastYearHeader"></th>
+                    <th>% Change</th>
+                  </tr>
+                </thead>
+                <tbody id="revenueTableBody"></tbody>
+              </table>
+            </div>
+
+            <div class="table-scroll">
+              <table class="revenue-table">
+                <thead>
+                  <tr>
+                    <th>Quarter</th>
+                    <th id="qThisYearHeader"></th>
+                    <th id="qLastYearHeader"></th>
+                    <th>% Change</th>
+                  </tr>
+                </thead>
+                <tbody id="quarterTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
   </div>
 
   <div id="inquiryModal" class="modal-overlay" style="display:none;">
@@ -49,6 +114,18 @@
         <button id="modalLeaveOpen" class="action-btn undo">Leave Open for Follow-up</button>
       </div>
       <button id="modalCancel" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="paymentModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3 id="paymentModalName"></h3>
+      <label class="modal-label" for="paymentAmount">Final payment received</label>
+      <input id="paymentAmount" class="modal-input" type="text" inputmode="decimal" placeholder="e.g. 150">
+      <div class="modal-actions">
+        <button id="paymentSubmit" class="action-btn call">Mark Complete &amp; Close</button>
+      </div>
+      <button id="paymentCancel" class="modal-cancel">Cancel</button>
     </div>
   </div>
 
