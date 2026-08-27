@@ -239,6 +239,44 @@ function updateInquiry(rowNumber, note, close) {
   return getDashboardData();
 }
 
+// One-time setup utility — run manually from the Apps Script editor (Run > setupBookingsPastEventFormatting).
+// Adds a conditional format rule that grays out any bookings row whose Event Date has
+// already passed. Uses TODAY() in the formula so it keeps working automatically as dates
+// roll by — no need to re-run this after adding new bookings.
+function setupBookingsPastEventFormatting() {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const eventDateCol = headers.indexOf('Event Date') + 1;
+  if (eventDateCol === 0) throw new Error('Event Date column not found');
+
+  const lastCol = sheet.getLastColumn();
+  const dataRange = sheet.getRange(2, 1, sheet.getMaxRows() - 1, lastCol);
+  const eventDateColLetter = columnToLetter_(eventDateCol);
+
+  const rules = sheet.getConditionalFormatRules().filter(r => {
+    return !r.getRanges().some(rg => rg.getA1Notation() === dataRange.getA1Notation());
+  });
+
+  const pastEventRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=$' + eventDateColLetter + '2 < TODAY()')
+    .setBackground('#e8e8e8')
+    .setRanges([dataRange])
+    .build();
+
+  rules.push(pastEventRule);
+  sheet.setConditionalFormatRules(rules);
+}
+
+function columnToLetter_(column) {
+  let temp, letter = '';
+  while (column > 0) {
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    column = (column - temp - 2) / 26;
+  }
+  return letter;
+}
+
 const MONTH_ABBR_ = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_NAMES_ = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -280,6 +318,80 @@ function quarterOf_(monthValues, quarterIdx) {
 function pctChange_(current, base) {
   if (current === null || base === null || base === 0) return null;
   return ((current - base) / base) * 100;
+}
+
+function historicalMonthLabel_(year, month) {
+  return MONTH_ABBR_[month] + '-' + String(year).slice(-2);
+}
+
+// Sums Total Paid for active (non-cancelled) bookings whose Event Date falls
+// in the given month/year — this is what "revenue" means for a given month.
+function sumPaidForMonth_(bookings, year, month) {
+  return bookings.reduce((total, b) => {
+    const status = (b['Booking Status'] || '').toString().toLowerCase();
+    if (status.indexOf('cancel') !== -1) return total;
+    const eventDate = parseEventDateTime_(b);
+    if (!eventDate || eventDate.getFullYear() !== year || eventDate.getMonth() !== month) return total;
+    return total + toNumber_(b['Total Paid']);
+  }, 0);
+}
+
+// Keeps the historical tab's current-month row in sync with actual bookings
+// revenue (Total Paid by Event Date), and italicizes it to flag that the month
+// isn't closed out yet — the total will keep moving until the month rolls over.
+// Any other row that's still italic from a prior run (last month, before it
+// closed out) gets reset to normal font here too. Runs on a time-driven trigger
+// (see setupHistoricalRevenueSync) rather than on every page load.
+function syncCurrentMonthRevenue_() {
+  const sheet = getSheet_(CONFIG.HISTORICAL_TAB);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const monthCol = headers.indexOf('Month') + 1;
+  const revenueCol = headers.indexOf('Revenue') + 1;
+  if (monthCol === 0) throw new Error('Month column not found');
+  if (revenueCol === 0) throw new Error('Revenue column not found');
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  const rows = readRows_(CONFIG.HISTORICAL_TAB);
+  let currentMonthRow = null;
+  rows.forEach(r => {
+    const parsed = parseHistoricalMonth_(r['Month']);
+    if (!parsed) return;
+    if (parsed.year === currentYear && parsed.month === currentMonth) {
+      currentMonthRow = r._row;
+    } else {
+      sheet.getRange(r._row, revenueCol).setFontStyle('normal');
+    }
+  });
+
+  if (!currentMonthRow) {
+    currentMonthRow = sheet.getLastRow() + 1;
+    sheet.getRange(currentMonthRow, monthCol).setValue(historicalMonthLabel_(currentYear, currentMonth));
+  }
+
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const total = sumPaidForMonth_(bookings, currentYear, currentMonth);
+
+  const revenueCell = sheet.getRange(currentMonthRow, revenueCol);
+  revenueCell.setValue(total);
+  revenueCell.setFontStyle('italic');
+}
+
+// One-time setup utility — run manually from the Apps Script editor
+// (Run > setupHistoricalRevenueSync). Installs an hourly trigger that keeps
+// the current month's historical revenue row synced and italicized, and runs
+// it once immediately.
+function setupHistoricalRevenueSync() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'syncCurrentMonthRevenue_')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('syncCurrentMonthRevenue_')
+    .timeBased()
+    .everyHours(1)
+    .create();
+  syncCurrentMonthRevenue_();
 }
 
 function getRevenueStats() {

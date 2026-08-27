@@ -452,6 +452,12 @@ h2 {
   padding-left: 7px;
 }
 
+/* Current month's revenue isn't closed out yet — italics + tint flag it as still moving. */
+.revenue-table tr.current-month td {
+  font-style: italic;
+  background: rgba(56, 196, 179, 0.08);
+}
+
 .modal-label {
   display: block;
   font-size: 12px;
