@@ -336,6 +336,32 @@ function sumPaidForMonth_(bookings, year, month) {
   }, 0);
 }
 
+// Revenue category split — the three buckets always sum to total revenue:
+// Chris Connelly (by Invitee Name), Monster Productions (by Event Type), and
+// Studio Rentals (everything else).
+function categorizeBooking_(b) {
+  const name = (b['Invitee Name'] || '').toString().trim().toLowerCase();
+  if (name === 'chris connelly') return 'chris';
+  const eventType = (b['Event Type'] || '').toString().trim().toLowerCase();
+  if (eventType === 'monster productions shoot') return 'monster';
+  return 'rentals';
+}
+
+// Sums Total Paid per category for active bookings whose Event Date falls in
+// the given year, optionally narrowed to a single month (null = whole year).
+function sumCategoryRevenue_(bookings, year, month) {
+  const totals = { chris: 0, monster: 0, rentals: 0 };
+  bookings.forEach(b => {
+    const status = (b['Booking Status'] || '').toString().toLowerCase();
+    if (status.indexOf('cancel') !== -1) return;
+    const eventDate = parseEventDateTime_(b);
+    if (!eventDate || eventDate.getFullYear() !== year) return;
+    if (month !== null && eventDate.getMonth() !== month) return;
+    totals[categorizeBooking_(b)] += toNumber_(b['Total Paid']);
+  });
+  return totals;
+}
+
 // Keeps the historical tab's current-month row in sync with actual bookings
 // revenue (Total Paid by Event Date), and italicizes it to flag that the month
 // isn't closed out yet — the total will keep moving until the month rolls over.
@@ -406,7 +432,20 @@ function getRevenueStats() {
 
   const now = new Date();
   const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth();
   const lastYear = currentYear - 1;
+
+  // Full history, oldest to newest, for the "since opening" trend chart —
+  // stops at the current (in-progress) month, excludes not-yet-reached months.
+  const allMonths = rows
+    .map(r => {
+      const parsed = parseHistoricalMonth_(r['Month']);
+      return parsed ? { year: parsed.year, month: parsed.month, value: toNumber_(r['Revenue']) } : null;
+    })
+    .filter(m => m !== null)
+    .filter(m => (m.year * 12 + m.month) <= (currentYear * 12 + currentMonthIdx))
+    .sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month))
+    .map(m => ({ label: historicalMonthLabel_(m.year, m.month), value: m.value }));
 
   const thisYearMonths = byYear[currentYear] || new Array(12).fill(null);
   const lastYearMonths = byYear[lastYear] || new Array(12).fill(null);
@@ -440,6 +479,15 @@ function getRevenueStats() {
     return { label: label, thisYear: ty, lastYear: ly, pctChange: pctChange_(ty, ly) };
   });
 
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const categoryMonth = sumCategoryRevenue_(bookings, currentYear, now.getMonth());
+  const categoryYear = sumCategoryRevenue_(bookings, currentYear, null);
+  const categories = {
+    chrisConnelly: { label: 'Chris Connelly', month: categoryMonth.chris, year: categoryYear.chris },
+    monsterProductions: { label: 'Monster Productions', month: categoryMonth.monster, year: categoryYear.monster },
+    studioRentals: { label: 'Studio Rentals', month: categoryMonth.rentals, year: categoryYear.rentals },
+  };
+
   return {
     currentYear: currentYear,
     lastYear: lastYear,
@@ -451,6 +499,8 @@ function getRevenueStats() {
     ytdComparisonDiff: ytdComparisonDiff,
     ytdComparisonPct: ytdComparisonPct,
     quarters: quarters,
+    categories: categories,
+    allMonths: allMonths,
     generatedAt: formatDate_(new Date(), 'EEE, MMM d, yyyy h:mm a'),
   };
 }

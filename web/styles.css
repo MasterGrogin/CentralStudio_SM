@@ -12,6 +12,13 @@
   --radius: 12px;
   --gain: #2ea394;
   --loss: #dc2626;
+  --cat-chris: #38C4B3;
+  --cat-monster: #eb6834;
+  --cat-rentals: #4a3aa7;
+  --chart-thisyear: #2a78d6;
+  --chart-lastyear: #6b7a85;
+  --chart-trend: #dc2626;
+  --chart-avg: #1baf7a;
 }
 
 * { box-sizing: border-box; }
@@ -85,6 +92,17 @@ h1 {
   cursor: pointer;
 }
 .refresh-btn:active { background: var(--teal-dark); }
+
+#pageFooter {
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px 32px;
+}
+#pageFooter .refresh-btn {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
 
 .loading, .error-box {
   text-align: center;
@@ -366,9 +384,158 @@ h2 {
 
 @media (min-width: 900px) {
   .stat-tiles { grid-template-columns: repeat(4, 1fr); }
+  .category-tiles { grid-template-columns: repeat(3, 1fr); }
   .revenue-table { font-size: 13px; }
   .revenue-table th, .revenue-table td { padding: 10px 16px; }
 }
+
+.category-heading {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.pie-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.pie-svg { width: 160px; height: 160px; flex-shrink: 0; }
+
+.pie-slice {
+  stroke: var(--card-bg);
+  stroke-width: 2;
+  transition: filter 0.15s ease;
+}
+.pie-slice:hover { filter: brightness(1.08); cursor: pointer; }
+
+.pie-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+  padding: 20px 0;
+}
+
+.pie-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.pie-legend li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pie-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.pie-legend .pie-legend-name {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.pie-legend .pie-legend-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pie-legend .pie-legend-pct {
+  color: var(--text-muted);
+  min-width: 34px;
+  text-align: right;
+}
+
+.line-chart-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.line-chart-wrap { position: relative; }
+.line-chart-svg { width: 100%; height: auto; display: block; }
+
+.income-gridline { stroke: var(--border); stroke-width: 1; }
+.income-baseline { stroke: #c3c2b7; stroke-width: 1; }
+.income-axis-label { fill: var(--text-muted); font-size: 11px; font-family: 'Montserrat', sans-serif; }
+
+.income-line-thisyear { fill: none; stroke: var(--chart-thisyear); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.income-line-lastyear { fill: none; stroke: var(--chart-lastyear); stroke-width: 2; stroke-dasharray: 7 5; stroke-linejoin: round; stroke-linecap: round; }
+.income-line-trend { fill: none; stroke: var(--chart-trend); stroke-width: 2; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.income-line-avg { fill: none; stroke: var(--chart-avg); stroke-width: 2; }
+.income-line-trend-mono { fill: none; stroke: var(--chart-thisyear); stroke-width: 2; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.income-avg-label { fill: var(--chart-avg); font-size: 11px; font-weight: 600; font-family: 'Montserrat', sans-serif; }
+
+.income-hit-rect { fill: transparent; cursor: crosshair; }
+.income-crosshair { stroke: var(--text-muted); stroke-width: 1; opacity: 0; pointer-events: none; }
+
+.line-legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.line-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.line-legend .line-key {
+  width: 20px;
+  border-top-width: 2px;
+  transform: translateY(-1px);
+}
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--slate-dark);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 5;
+  white-space: nowrap;
+}
+
+.chart-tooltip .tt-month { font-weight: 700; margin-bottom: 4px; }
+.chart-tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
+.chart-tooltip .tt-key { display: inline-block; width: 10px; height: 2px; flex-shrink: 0; }
+.chart-tooltip .tt-value { font-weight: 700; margin-left: auto; padding-left: 10px; }
+.chart-tooltip .tt-name { color: rgba(255,255,255,0.75); }
 
 .stat-tile {
   background: var(--card-bg);

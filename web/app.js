@@ -476,6 +476,420 @@ function renderRevenue(data) {
       '<td class="' + gainLossClass(q.pctChange, 0) + '">' + formatPercent(q.pctChange) + '</td>';
     qBody.appendChild(tr);
   });
+
+  var c = data.categories;
+  document.getElementById('catChrisYear').textContent = formatCurrency(c.chrisConnelly.year);
+  document.getElementById('catChrisMonth').textContent = 'This Month: ' + formatCurrency(c.chrisConnelly.month);
+  document.getElementById('catMonsterYear').textContent = formatCurrency(c.monsterProductions.year);
+  document.getElementById('catMonsterMonth').textContent = 'This Month: ' + formatCurrency(c.monsterProductions.month);
+  document.getElementById('catRentalsYear').textContent = formatCurrency(c.studioRentals.year);
+  document.getElementById('catRentalsMonth').textContent = 'This Month: ' + formatCurrency(c.studioRentals.month);
+
+  renderCategoryPie([
+    { name: 'Chris Connelly', value: c.chrisConnelly.year, color: 'var(--cat-chris)' },
+    { name: 'Monster Productions', value: c.monsterProductions.year, color: 'var(--cat-monster)' },
+    { name: 'Studio Rentals', value: c.studioRentals.year, color: 'var(--cat-rentals)' },
+  ]);
+
+  var chartMonths = data.months.map(function (m, idx) {
+    if (currentMonthIdx !== -1 && idx > currentMonthIdx) {
+      return Object.assign({}, m, { thisYear: null });
+    }
+    return m;
+  });
+  renderIncomeChart(chartMonths, data.lastYearAvg);
+  renderSinceOpeningChart(data.allMonths);
+}
+
+function polarToCartesian_(cx, cy, r, angleDeg) {
+  var rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function donutSlicePath_(cx, cy, rOuter, rInner, startAngle, endAngle) {
+  var startOuter = polarToCartesian_(cx, cy, rOuter, endAngle);
+  var endOuter = polarToCartesian_(cx, cy, rOuter, startAngle);
+  var startInner = polarToCartesian_(cx, cy, rInner, endAngle);
+  var endInner = polarToCartesian_(cx, cy, rInner, startAngle);
+  var largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+  return [
+    'M', startOuter.x, startOuter.y,
+    'A', rOuter, rOuter, 0, largeArc, 0, endOuter.x, endOuter.y,
+    'L', endInner.x, endInner.y,
+    'A', rInner, rInner, 0, largeArc, 1, startInner.x, startInner.y,
+    'Z',
+  ].join(' ');
+}
+
+function renderCategoryPie(slices) {
+  var svg = document.getElementById('categoryPie');
+  var emptyEl = document.getElementById('categoryPieEmpty');
+  var legendEl = document.getElementById('categoryPieLegend');
+  svg.innerHTML = '';
+  legendEl.innerHTML = '';
+
+  var total = slices.reduce(function (sum, s) { return sum + Math.max(0, s.value || 0); }, 0);
+
+  if (total <= 0) {
+    svg.style.display = 'none';
+    emptyEl.style.display = '';
+  } else {
+    svg.style.display = '';
+    emptyEl.style.display = 'none';
+
+    var cx = 110, cy = 110, rOuter = 100, rInner = 58;
+    var gapDeg = 2;
+    var angle = 0;
+    var ns = 'http://www.w3.org/2000/svg';
+
+    slices.forEach(function (s) {
+      var value = Math.max(0, s.value || 0);
+      var sweep = (value / total) * 360;
+      if (value > 0 && sweep > gapDeg) {
+        var start = angle + gapDeg / 2;
+        var end = angle + sweep - gapDeg / 2;
+        var path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', donutSlicePath_(cx, cy, rOuter, rInner, start, end));
+        path.setAttribute('fill', s.color);
+        path.setAttribute('class', 'pie-slice');
+        var title = document.createElementNS(ns, 'title');
+        title.textContent = s.name + ': ' + formatCurrency(value) + ' (' + Math.round((value / total) * 100) + '%)';
+        path.appendChild(title);
+        svg.appendChild(path);
+      }
+      angle += sweep;
+    });
+  }
+
+  slices.forEach(function (s) {
+    var value = Math.max(0, s.value || 0);
+    var pct = total > 0 ? Math.round((value / total) * 100) : 0;
+    var li = document.createElement('li');
+    li.innerHTML =
+      '<span class="swatch" style="background:' + s.color + '"></span>' +
+      '<span class="pie-legend-name">' + escapeHtml(s.name) + '</span>' +
+      '<span class="pie-legend-value">' + formatCurrency(value) + '</span>' +
+      '<span class="pie-legend-pct">' + pct + '%</span>';
+    legendEl.appendChild(li);
+  });
+}
+
+function linearRegression_(points) {
+  var n = points.length;
+  if (n < 2) return null;
+  var sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  points.forEach(function (p) {
+    sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumXX += p.x * p.x;
+  });
+  var denom = (n * sumXX - sumX * sumX);
+  if (denom === 0) return null;
+  var slope = (n * sumXY - sumX * sumY) / denom;
+  var intercept = (sumY - slope * sumX) / n;
+  return { slope: slope, intercept: intercept };
+}
+
+function niceStep_(rawStep) {
+  if (rawStep <= 0) return 1;
+  var exponent = Math.floor(Math.log(rawStep) / Math.LN10);
+  var fraction = rawStep / Math.pow(10, exponent);
+  var niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return niceFraction * Math.pow(10, exponent);
+}
+
+function buildLinePath_(points) {
+  var d = '';
+  var drawing = false;
+  points.forEach(function (p) {
+    if (p === null) { drawing = false; return; }
+    d += (drawing ? ' L ' : ' M ') + p.x + ' ' + p.y;
+    drawing = true;
+  });
+  return d.trim();
+}
+
+function renderIncomeChart(months, lastYearAvg) {
+  var svg = document.getElementById('incomeChart');
+  var tooltip = document.getElementById('incomeTooltip');
+  svg.innerHTML = '';
+  var ns = 'http://www.w3.org/2000/svg';
+
+  var W = 860, H = 320, padL = 60, padR = 20, padT = 20, padB = 30;
+  var plotW = W - padL - padR, plotH = H - padT - padB;
+  var n = months.length;
+
+  var trend = linearRegression_(
+    months.map(function (m, i) { return { x: i, y: m.thisYear }; }).filter(function (p) { return p.y !== null; })
+  );
+  var trendVals = trend ? months.map(function (m, i) { return trend.slope * i + trend.intercept; }) : null;
+
+  var allVals = [];
+  months.forEach(function (m) {
+    if (m.thisYear !== null) allVals.push(m.thisYear);
+    if (m.lastYear !== null) allVals.push(m.lastYear);
+  });
+  if (lastYearAvg !== null && lastYearAvg !== undefined) allVals.push(lastYearAvg);
+  if (trendVals) allVals = allVals.concat(trendVals);
+  if (!allVals.length) allVals = [0, 1];
+
+  var rawMin = Math.min.apply(null, allVals.concat([0]));
+  var rawMax = Math.max.apply(null, allVals);
+  var step = niceStep_((rawMax - rawMin) / 5 || 1);
+  var yMin = Math.floor(rawMin / step) * step;
+  var yMax = Math.ceil(rawMax / step) * step;
+  if (yMax === yMin) yMax = yMin + step;
+
+  function xAt(i) { return padL + (i / (n - 1)) * plotW; }
+  function yAt(v) { return padT + (1 - (v - yMin) / (yMax - yMin)) * plotH; }
+
+  // Gridlines + y-axis labels
+  for (var v = yMin; v <= yMax + 1e-9; v += step) {
+    var gy = yAt(v);
+    var line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', padL); line.setAttribute('x2', W - padR);
+    line.setAttribute('y1', gy); line.setAttribute('y2', gy);
+    line.setAttribute('class', Math.abs(v) < 1e-9 ? 'income-baseline' : 'income-gridline');
+    svg.appendChild(line);
+
+    var label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', padL - 8);
+    label.setAttribute('y', gy + 4);
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('class', 'income-axis-label');
+    label.textContent = '$' + Math.round(v).toLocaleString('en-US');
+    svg.appendChild(label);
+  }
+
+  // X-axis month labels
+  months.forEach(function (m, i) {
+    var label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', xAt(i));
+    label.setAttribute('y', H - padB + 18);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('class', 'income-axis-label');
+    label.textContent = m.name.slice(0, 3);
+    svg.appendChild(label);
+  });
+
+  function seriesPoints(key) {
+    return months.map(function (m, i) { return m[key] === null ? null : { x: xAt(i), y: yAt(m[key]) }; });
+  }
+
+  var lastYearPath = document.createElementNS(ns, 'path');
+  lastYearPath.setAttribute('d', buildLinePath_(seriesPoints('lastYear')));
+  lastYearPath.setAttribute('class', 'income-line-lastyear');
+  svg.appendChild(lastYearPath);
+
+  if (lastYearAvg !== null && lastYearAvg !== undefined) {
+    var avgPath = document.createElementNS(ns, 'path');
+    avgPath.setAttribute('d', 'M ' + padL + ' ' + yAt(lastYearAvg) + ' L ' + (W - padR) + ' ' + yAt(lastYearAvg));
+    avgPath.setAttribute('class', 'income-line-avg');
+    svg.appendChild(avgPath);
+
+    var avgLabel = document.createElementNS(ns, 'text');
+    avgLabel.setAttribute('x', W - padR);
+    avgLabel.setAttribute('y', yAt(lastYearAvg) - 6);
+    avgLabel.setAttribute('text-anchor', 'end');
+    avgLabel.setAttribute('class', 'income-avg-label');
+    avgLabel.textContent = 'LY Avg';
+    svg.appendChild(avgLabel);
+  }
+
+  if (trendVals) {
+    var trendPath = document.createElementNS(ns, 'path');
+    trendPath.setAttribute('d', 'M ' + xAt(0) + ' ' + yAt(trendVals[0]) + ' L ' + xAt(n - 1) + ' ' + yAt(trendVals[n - 1]));
+    trendPath.setAttribute('class', 'income-line-trend');
+    svg.appendChild(trendPath);
+  }
+
+  var thisYearPath = document.createElementNS(ns, 'path');
+  thisYearPath.setAttribute('d', buildLinePath_(seriesPoints('thisYear')));
+  thisYearPath.setAttribute('class', 'income-line-thisyear');
+  svg.appendChild(thisYearPath);
+
+  // Crosshair
+  var crosshair = document.createElementNS(ns, 'line');
+  crosshair.setAttribute('y1', padT);
+  crosshair.setAttribute('y2', H - padB);
+  crosshair.setAttribute('class', 'income-crosshair');
+  svg.appendChild(crosshair);
+
+  // Hover hit columns — one per month, full plot height
+  months.forEach(function (m, i) {
+    var colW = plotW / n;
+    var rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', xAt(i) - colW / 2);
+    rect.setAttribute('y', padT);
+    rect.setAttribute('width', colW);
+    rect.setAttribute('height', plotH);
+    rect.setAttribute('class', 'income-hit-rect');
+
+    rect.addEventListener('mouseenter', function () { showIncomeTooltip_(i); });
+    rect.addEventListener('mousemove', function () { showIncomeTooltip_(i); });
+    rect.addEventListener('mouseleave', function () {
+      crosshair.style.opacity = 0;
+      tooltip.style.display = 'none';
+    });
+    svg.appendChild(rect);
+  });
+
+  function showIncomeTooltip_(i) {
+    var m = months[i];
+    crosshair.setAttribute('x1', xAt(i));
+    crosshair.setAttribute('x2', xAt(i));
+    crosshair.style.opacity = 1;
+
+    var rows = [
+      { name: 'This Year', value: m.thisYear, color: 'var(--chart-thisyear)' },
+      { name: 'Last Year', value: m.lastYear, color: 'var(--chart-lastyear)' },
+    ];
+    if (trendVals) rows.push({ name: 'Trend', value: trendVals[i], color: 'var(--chart-trend)' });
+    if (lastYearAvg !== null && lastYearAvg !== undefined) rows.push({ name: 'LY Avg', value: lastYearAvg, color: 'var(--chart-avg)' });
+
+    var html = '<div class="tt-month">' + escapeHtml(m.name) + '</div>';
+    rows.forEach(function (r) {
+      html += '<div class="tt-row"><span class="tt-key" style="background:' + r.color + '"></span>' +
+        '<span class="tt-name">' + escapeHtml(r.name) + '</span>' +
+        '<span class="tt-value">' + formatCurrency(r.value) + '</span></div>';
+    });
+    tooltip.innerHTML = html;
+    tooltip.style.display = '';
+
+    var svgRect = svg.getBoundingClientRect();
+    var wrapRect = svg.parentElement.getBoundingClientRect();
+    var scaleX = svgRect.width / W;
+    var pxLeft = (xAt(i) * scaleX) + (svgRect.left - wrapRect.left);
+    var tooltipWidth = tooltip.offsetWidth || 140;
+    var left = pxLeft + 12;
+    if (left + tooltipWidth > wrapRect.width) left = pxLeft - tooltipWidth - 12;
+    tooltip.style.left = Math.max(0, left) + 'px';
+    tooltip.style.top = '8px';
+  }
+}
+
+function renderSinceOpeningChart(allMonths) {
+  var svg = document.getElementById('sinceOpeningChart');
+  var tooltip = document.getElementById('sinceOpeningTooltip');
+  svg.innerHTML = '';
+  if (!allMonths || !allMonths.length) return;
+  var ns = 'http://www.w3.org/2000/svg';
+
+  var W = 860, H = 320, padL = 60, padR = 20, padT = 20, padB = 30;
+  var plotW = W - padL - padR, plotH = H - padT - padB;
+  var n = allMonths.length;
+
+  var trend = linearRegression_(allMonths.map(function (m, i) { return { x: i, y: m.value }; }));
+  var trendVals = trend ? allMonths.map(function (m, i) { return trend.slope * i + trend.intercept; }) : null;
+
+  var allVals = allMonths.map(function (m) { return m.value; });
+  if (trendVals) allVals = allVals.concat(trendVals);
+
+  var rawMin = Math.min.apply(null, allVals.concat([0]));
+  var rawMax = Math.max.apply(null, allVals);
+  var step = niceStep_((rawMax - rawMin) / 5 || 1);
+  var yMin = Math.floor(rawMin / step) * step;
+  var yMax = Math.ceil(rawMax / step) * step;
+  if (yMax === yMin) yMax = yMin + step;
+
+  function xAt(i) { return n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2; }
+  function yAt(v) { return padT + (1 - (v - yMin) / (yMax - yMin)) * plotH; }
+
+  for (var v = yMin; v <= yMax + 1e-9; v += step) {
+    var gy = yAt(v);
+    var line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', padL); line.setAttribute('x2', W - padR);
+    line.setAttribute('y1', gy); line.setAttribute('y2', gy);
+    line.setAttribute('class', Math.abs(v) < 1e-9 ? 'income-baseline' : 'income-gridline');
+    svg.appendChild(line);
+
+    var label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', padL - 8);
+    label.setAttribute('y', gy + 4);
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('class', 'income-axis-label');
+    label.textContent = '$' + Math.round(v).toLocaleString('en-US');
+    svg.appendChild(label);
+  }
+
+  var maxLabels = Math.max(1, Math.floor(plotW / 42));
+  var labelSkip = Math.max(1, Math.ceil(n / maxLabels));
+  allMonths.forEach(function (m, i) {
+    var isTick = i % labelSkip === 0;
+    var isLast = i === n - 1;
+    if (!isTick && !isLast) return;
+    if (isTick && !isLast && (n - 1 - i) < labelSkip) return;
+    var label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', xAt(i));
+    label.setAttribute('y', H - padB + 18);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('class', 'income-axis-label');
+    label.textContent = m.label;
+    svg.appendChild(label);
+  });
+
+  if (trendVals) {
+    var trendPath = document.createElementNS(ns, 'path');
+    trendPath.setAttribute('d', 'M ' + xAt(0) + ' ' + yAt(trendVals[0]) + ' L ' + xAt(n - 1) + ' ' + yAt(trendVals[n - 1]));
+    trendPath.setAttribute('class', 'income-line-trend-mono');
+    svg.appendChild(trendPath);
+  }
+
+  var actualPath = document.createElementNS(ns, 'path');
+  actualPath.setAttribute('d', buildLinePath_(allMonths.map(function (m, i) { return { x: xAt(i), y: yAt(m.value) }; })));
+  actualPath.setAttribute('class', 'income-line-thisyear');
+  svg.appendChild(actualPath);
+
+  var crosshair = document.createElementNS(ns, 'line');
+  crosshair.setAttribute('y1', padT);
+  crosshair.setAttribute('y2', H - padB);
+  crosshair.setAttribute('class', 'income-crosshair');
+  svg.appendChild(crosshair);
+
+  var colW = plotW / n;
+  allMonths.forEach(function (m, i) {
+    var rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', xAt(i) - colW / 2);
+    rect.setAttribute('y', padT);
+    rect.setAttribute('width', colW);
+    rect.setAttribute('height', plotH);
+    rect.setAttribute('class', 'income-hit-rect');
+
+    rect.addEventListener('mouseenter', function () { showSinceOpeningTooltip_(i); });
+    rect.addEventListener('mousemove', function () { showSinceOpeningTooltip_(i); });
+    rect.addEventListener('mouseleave', function () {
+      crosshair.style.opacity = 0;
+      tooltip.style.display = 'none';
+    });
+    svg.appendChild(rect);
+  });
+
+  function showSinceOpeningTooltip_(i) {
+    var m = allMonths[i];
+    crosshair.setAttribute('x1', xAt(i));
+    crosshair.setAttribute('x2', xAt(i));
+    crosshair.style.opacity = 1;
+
+    var html = '<div class="tt-month">' + escapeHtml(m.label) + '</div>' +
+      '<div class="tt-row"><span class="tt-key" style="background:var(--chart-thisyear)"></span>' +
+      '<span class="tt-name">Gross</span>' +
+      '<span class="tt-value">' + formatCurrency(m.value) + '</span></div>';
+    if (trendVals) {
+      html += '<div class="tt-row"><span class="tt-key" style="background:var(--chart-thisyear)"></span>' +
+        '<span class="tt-name">Trend</span>' +
+        '<span class="tt-value">' + formatCurrency(trendVals[i]) + '</span></div>';
+    }
+    tooltip.innerHTML = html;
+    tooltip.style.display = '';
+
+    var svgRect = svg.getBoundingClientRect();
+    var wrapRect = svg.parentElement.getBoundingClientRect();
+    var scaleX = svgRect.width / W;
+    var pxLeft = (xAt(i) * scaleX) + (svgRect.left - wrapRect.left);
+    var tooltipWidth = tooltip.offsetWidth || 140;
+    var left = pxLeft + 12;
+    if (left + tooltipWidth > wrapRect.width) left = pxLeft - tooltipWidth - 12;
+    tooltip.style.left = Math.max(0, left) + 'px';
+    tooltip.style.top = '8px';
+  }
 }
 
 document.getElementById('refreshBtn').addEventListener('click', function () {
