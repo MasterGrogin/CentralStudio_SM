@@ -59,6 +59,45 @@ function renderDashboard(data) {
   renderBookingList('needsCallList', data.needsCall, false);
   renderVettedList('vettedList', data.vettedUpcoming);
   renderInquiryList('inquiryList', data.openInquiries);
+  renderChrisPayment(data.chrisPaymentStatus);
+}
+
+var CHRIS_INVOICE_THRESHOLD = 15;
+var chrisPendingCount = 0;
+
+function chrisTierFor(count, blockSize) {
+  if (count >= blockSize) return 'danger';
+  if (count >= CHRIS_INVOICE_THRESHOLD) return 'warn';
+  return 'safe';
+}
+
+// Gauge fills 0-25 and clamps visually at a full bar past 25, but the number
+// itself keeps counting up past 25 — Chris can keep booking sessions while an
+// invoice is outstanding, so "more than a block owed" is a real state to show.
+function renderChrisPayment(status) {
+  if (!status) return;
+  var count = status.unpaidCount;
+  var blockSize = status.blockSize || 25;
+  var tier = chrisTierFor(count, blockSize);
+
+  var countEl = document.getElementById('chrisUnpaidCount');
+  countEl.textContent = count;
+  countEl.className = 'chris-gauge-number tier-' + tier;
+
+  document.getElementById('chrisLastPayment').textContent = status.lastPaymentDate
+    ? ('Last payment applied ' + status.lastPaymentDate)
+    : 'No payments recorded yet';
+
+  var fillPct = Math.min(100, (count / blockSize) * 100);
+  var fillEl = document.getElementById('chrisGaugeFill');
+  fillEl.style.width = fillPct + '%';
+  fillEl.className = 'chris-gauge-fill tier-' + tier;
+
+  document.getElementById('chrisGaugeTick').style.left =
+    Math.min(100, (CHRIS_INVOICE_THRESHOLD / blockSize) * 100) + '%';
+
+  chrisPendingCount = Math.min(count, blockSize);
+  document.getElementById('chrisApplyPaymentBtn').disabled = chrisPendingCount === 0;
 }
 
 function renderBookingList(containerId, items, isCalledList) {
@@ -387,6 +426,49 @@ paymentSubmitBtn.addEventListener('click', function () {
 });
 
 paymentCancelBtn.addEventListener('click', closePaymentModal);
+
+var chrisPaymentModalOverlay = document.getElementById('chrisPaymentModal');
+var chrisPaymentModalText = document.getElementById('chrisPaymentModalText');
+var chrisPaymentConfirmBtn = document.getElementById('chrisPaymentConfirm');
+var chrisPaymentCancelBtn = document.getElementById('chrisPaymentCancel');
+var chrisPaymentInFlight = false;
+
+document.getElementById('chrisApplyPaymentBtn').addEventListener('click', function () {
+  if (chrisPendingCount === 0) return;
+  chrisPaymentModalText.textContent = 'This marks the oldest ' + chrisPendingCount +
+    ' unpaid session' + (chrisPendingCount === 1 ? '' : 's') + ' as paid today.';
+  chrisPaymentModalOverlay.style.display = 'flex';
+});
+
+chrisPaymentCancelBtn.addEventListener('click', function () {
+  chrisPaymentModalOverlay.style.display = 'none';
+});
+
+chrisPaymentConfirmBtn.addEventListener('click', function () {
+  if (chrisPaymentInFlight) return;
+  chrisPaymentInFlight = true;
+  chrisPaymentConfirmBtn.disabled = true;
+  chrisPaymentConfirmBtn.textContent = 'Applying…';
+
+  postAction({ action: 'applyChrisPayment' })
+    .then(function (res) {
+      chrisPaymentInFlight = false;
+      chrisPaymentConfirmBtn.disabled = false;
+      chrisPaymentConfirmBtn.textContent = 'Confirm — Mark Paid';
+      if (res.ok) {
+        chrisPaymentModalOverlay.style.display = 'none';
+        renderDashboard(res.data);
+      } else {
+        showError(res.error);
+      }
+    })
+    .catch(function (err) {
+      chrisPaymentInFlight = false;
+      chrisPaymentConfirmBtn.disabled = false;
+      chrisPaymentConfirmBtn.textContent = 'Confirm — Mark Paid';
+      showError(err.message || err);
+    });
+});
 
 function formatCurrency(val) {
   if (val === null || val === undefined) return '—';
@@ -892,9 +974,66 @@ function renderSinceOpeningChart(allMonths) {
   }
 }
 
+function loadStudioHealth() {
+  document.getElementById('healthLoading').style.display = '';
+  document.getElementById('healthContent').style.display = 'none';
+  document.getElementById('healthErrorBox').style.display = 'none';
+
+  fetch(API_URL + '?action=getStudioHealth')
+    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (res.ok) {
+        renderStudioHealth(res.data);
+      } else {
+        showStudioHealthError(res.error);
+      }
+    })
+    .catch(function (err) { showStudioHealthError(err.message || err); });
+}
+
+function showStudioHealthError(message) {
+  document.getElementById('healthLoading').style.display = 'none';
+  var box = document.getElementById('healthErrorBox');
+  box.style.display = '';
+  box.textContent = 'Could not load studio health: ' + message;
+}
+
+var HEALTH_STATUS_TEXT = { great: 'Great', okay: 'On Pace', low: 'Needs Attention', neutral: 'No Data Yet' };
+var HEALTH_STATUS_ICON = { great: '▲', okay: '●', low: '▼', neutral: '–' };
+
+function formatHealthValue_(metric) {
+  if (metric.value === null || metric.value === undefined) return '—';
+  return metric.isPercent ? Math.round(metric.value) + '%' : metric.value.toLocaleString('en-US');
+}
+
+function formatHealthBaseline_(metric) {
+  if (metric.baseline === null || metric.baseline === undefined) return metric.baselineLabel + ': —';
+  var baselineText = metric.isPercent ? Math.round(metric.baseline) + '%' : metric.baseline.toFixed(1);
+  return metric.baselineLabel + ': ' + baselineText;
+}
+
+function renderStudioHealth(data) {
+  document.getElementById('healthLoading').style.display = 'none';
+  document.getElementById('healthContent').style.display = '';
+  document.getElementById('healthMonthLabel').textContent = data.monthLabel;
+
+  ['inquiries', 'rentals', 'uniqueCustomers', 'conversionRate', 'repeatCustomerRate'].forEach(function (key) {
+    var metric = data[key];
+    var tile = document.getElementById('healthTile-' + key);
+    tile.className = 'health-tile tier-' + metric.tier;
+    document.getElementById('health-' + key + '-value').textContent = formatHealthValue_(metric);
+    var statusEl = document.getElementById('health-' + key + '-status');
+    statusEl.className = 'health-status tier-' + metric.tier;
+    statusEl.textContent = HEALTH_STATUS_ICON[metric.tier] + ' ' + HEALTH_STATUS_TEXT[metric.tier];
+    document.getElementById('health-' + key + '-baseline').textContent = formatHealthBaseline_(metric);
+  });
+}
+
 document.getElementById('refreshBtn').addEventListener('click', function () {
   loadDashboard();
   loadRevenue();
+  loadStudioHealth();
 });
+loadStudioHealth();
 loadDashboard();
 loadRevenue();

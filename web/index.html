@@ -45,6 +45,80 @@
 
       <aside id="statsPanel">
         <section>
+          <h2>Studio Health <span class="count" id="healthMonthLabel"></span></h2>
+          <div id="healthLoading" class="loading">Loading…</div>
+          <div id="healthErrorBox" class="error-box" style="display:none;"></div>
+
+          <div id="healthContent" class="health-tiles" style="display:none;">
+            <div class="health-tile" id="healthTile-inquiries">
+              <div class="health-label">Inquiries This Month</div>
+              <div class="health-value-row">
+                <span class="health-value" id="health-inquiries-value"></span>
+                <span class="health-status" id="health-inquiries-status"></span>
+              </div>
+              <div class="health-baseline" id="health-inquiries-baseline"></div>
+            </div>
+            <div class="health-tile" id="healthTile-rentals">
+              <div class="health-label">Rentals This Month</div>
+              <div class="health-value-row">
+                <span class="health-value" id="health-rentals-value"></span>
+                <span class="health-status" id="health-rentals-status"></span>
+              </div>
+              <div class="health-baseline" id="health-rentals-baseline"></div>
+            </div>
+            <div class="health-tile" id="healthTile-uniqueCustomers">
+              <div class="health-label">Unique Customers</div>
+              <div class="health-value-row">
+                <span class="health-value" id="health-uniqueCustomers-value"></span>
+                <span class="health-status" id="health-uniqueCustomers-status"></span>
+              </div>
+              <div class="health-baseline" id="health-uniqueCustomers-baseline"></div>
+            </div>
+            <div class="health-tile" id="healthTile-conversionRate">
+              <div class="health-label">Inquiry → Booking Rate</div>
+              <div class="health-value-row">
+                <span class="health-value" id="health-conversionRate-value"></span>
+                <span class="health-status" id="health-conversionRate-status"></span>
+              </div>
+              <div class="health-baseline" id="health-conversionRate-baseline"></div>
+            </div>
+            <div class="health-tile" id="healthTile-repeatCustomerRate">
+              <div class="health-label">Repeat Customer Rate</div>
+              <div class="health-value-row">
+                <span class="health-value" id="health-repeatCustomerRate-value"></span>
+                <span class="health-status" id="health-repeatCustomerRate-status"></span>
+              </div>
+              <div class="health-baseline" id="health-repeatCustomerRate-baseline"></div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Chris Connelly Sessions</h2>
+          <div class="chris-payment-card">
+            <div class="chris-gauge-row">
+              <div class="chris-gauge-number" id="chrisUnpaidCount">0</div>
+              <div class="chris-gauge-labels">
+                <div class="chris-gauge-label">Unpaid Sessions</div>
+                <div class="chris-gauge-sub" id="chrisLastPayment"></div>
+              </div>
+            </div>
+            <div class="chris-gauge-wrap">
+              <div class="chris-gauge-track">
+                <div class="chris-gauge-fill" id="chrisGaugeFill"></div>
+              </div>
+              <div class="chris-gauge-tick" id="chrisGaugeTick"></div>
+            </div>
+            <div class="chris-gauge-scale">
+              <span>0</span>
+              <span>15 &middot; usual invoice point</span>
+              <span>25 &middot; a block</span>
+            </div>
+            <button id="chrisApplyPaymentBtn" class="action-btn call chris-apply-btn">Apply Payment — Oldest 25</button>
+          </div>
+        </section>
+
+        <section>
           <h2>Revenue <span class="count" id="revenueYearLabel"></span></h2>
           <div id="revenueLoading" class="loading">Loading…</div>
           <div id="revenueErrorBox" class="error-box" style="display:none;"></div>
@@ -157,6 +231,7 @@
 
     <footer id="pageFooter">
       <a id="openSheetBtn" class="refresh-btn" href="https://docs.google.com/spreadsheets/d/1LGDQdKhiiGAxpnn_YkQJgZefhJQD5rkwffWdeZTO2Pg/edit" target="_blank" rel="noopener">Open Google Sheet</a>
+      <a id="openManualBtn" class="refresh-btn" href="manual.html" target="_blank" rel="noopener">Manual</a>
     </footer>
   </div>
 
@@ -181,6 +256,17 @@
         <button id="paymentSubmit" class="action-btn call">Mark Complete &amp; Close</button>
       </div>
       <button id="paymentCancel" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="chrisPaymentModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3>Apply Chris Connelly Payment</h3>
+      <p class="modal-note-text" id="chrisPaymentModalText"></p>
+      <div class="modal-actions">
+        <button id="chrisPaymentConfirm" class="action-btn call">Confirm — Mark Paid</button>
+      </div>
+      <button id="chrisPaymentCancel" class="modal-cancel">Cancel</button>
     </div>
   </div>
 

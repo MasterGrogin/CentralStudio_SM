@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Central Studio Dashboard — Manual</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="icon.jpg">
+<style>
+:root {
+  --teal: #38C4B3;
+  --teal-dark: #2ea394;
+  --slate: #3F6184;
+  --slate-dark: #33506d;
+  --bg: #f4f6f7;
+  --surface: #ffffff;
+  --surface2: #eef2f3;
+  --text: #1f2a33;
+  --muted: #6b7a85;
+  --border: #e1e7ea;
+  --focus: rgba(56,196,179,.25);
+  --good: #157a6e; --good-bg: #e2f6f3;
+  --warn: #92400e; --warn-bg: #fef3c7;
+  --bad: #b91c1c; --bad-bg: #fee2e2;
+  --sidebar-w: 270px;
+  --header-h: 58px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+  background: linear-gradient(120deg, var(--slate-dark), var(--teal-dark));
+  color: #fff; display: flex; align-items: center; gap: 14px; padding: 0 22px; z-index: 200;
+}
+.topbar-title { font-size: 17px; font-weight: 800; }
+.topbar-sub { font-size: 12px; color: rgba(255,255,255,.85); margin-left: 2px; }
+.topbar-back { margin-left: auto; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+  color: #fff; padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; }
+.topbar-back:hover { background: rgba(255,255,255,.25); }
+
+.layout { display: flex; margin-top: var(--header-h); min-height: calc(100vh - var(--header-h)); }
+
+.sidebar {
+  width: var(--sidebar-w); flex: 0 0 var(--sidebar-w); position: sticky; top: var(--header-h);
+  height: calc(100vh - var(--header-h)); overflow-y: auto; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 18px 0 40px;
+}
+.toc-group { margin-bottom: 6px; }
+.toc-group-label { padding: 6px 18px 4px; font-size: 10px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--teal-dark); }
+.toc-link { display: block; padding: 7px 18px 7px 22px; font-size: 13px; color: var(--muted);
+  text-decoration: none; border-left: 3px solid transparent; }
+.toc-link:hover { color: var(--text); background: var(--surface2); }
+.toc-link.toc-sub { padding-left: 34px; font-size: 12px; }
+
+.content { flex: 1; min-width: 0; padding: 38px 48px 80px; max-width: 880px; }
+
+.manual-section { margin-bottom: 52px; scroll-margin-top: calc(var(--header-h) + 20px); }
+.section-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(56,196,179,.12);
+  border: 1px solid rgba(56,196,179,.35); border-radius: 999px; padding: 4px 10px; font-size: 11px;
+  font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--teal-dark); margin-bottom: 10px; }
+.manual-section h2 { font-size: 25px; font-weight: 800; margin-bottom: 8px; border-bottom: 2px solid rgba(56,196,179,.3); padding-bottom: 8px; color: var(--slate-dark); }
+.manual-section h3 { font-size: 17px; font-weight: 800; margin: 22px 0 8px; color: var(--slate-dark); }
+.manual-section p { color: #374151; margin-bottom: 12px; font-size: 15px; }
+.manual-section ul, .manual-section ol { padding-left: 22px; margin-bottom: 14px; color: #374151; font-size: 15px; }
+.manual-section li { margin-bottom: 5px; }
+.manual-section strong { color: var(--text); }
+
+.callout { border-radius: 10px; padding: 14px 16px; margin: 16px 0; font-size: 14px; line-height: 1.5; }
+.callout.info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+.callout.warn { background: var(--warn-bg); border: 1px solid #fcd34d; color: var(--warn); }
+.callout.tip { background: var(--good-bg); border: 1px solid #99e0d3; color: var(--good); }
+.callout.bad { background: var(--bad-bg); border: 1px solid #fca5a5; color: var(--bad); }
+.callout strong { color: inherit; }
+
+.manual-table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; font-size: 13.5px; }
+.manual-table th { text-align: left; padding: 8px 12px; background: var(--surface2);
+  border-bottom: 2px solid rgba(56,196,179,.35); color: var(--slate-dark); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.manual-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: #374151; vertical-align: top; }
+.manual-table tr:last-child td { border-bottom: none; }
+
+.steps { list-style: none; padding: 0; counter-reset: steps; margin: 12px 0 20px; }
+.steps li { counter-increment: steps; display: flex; gap: 14px; margin-bottom: 12px; align-items: flex-start; font-size: 15px; color: #374151; }
+.steps li::before { content: counter(steps); display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex: 0 0 26px; background: var(--teal-dark); border-radius: 50%;
+  font-size: 12px; font-weight: 800; color: #fff; margin-top: 1px; }
+
+code { background: var(--surface2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px;
+  font-size: 13px; color: #9333ea; font-family: 'Courier New', monospace; }
+.manual-table code { background: var(--surface2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #9333ea; }
+
+.tier-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; }
+.tier-chip.great { color: var(--teal-dark); background: rgba(46,163,148,.14); }
+.tier-chip.okay { color: var(--slate-dark); background: rgba(63,97,132,.12); }
+.tier-chip.low { color: var(--bad); background: rgba(220,38,38,.12); }
+.tier-chip.neutral { color: var(--muted); background: rgba(137,135,129,.14); }
+
+hr.divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .content { max-width: 100%; padding: 28px 20px 60px; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title">Central Studio</div>
+  <div class="topbar-sub">Dashboard Manual</div>
+  <a class="topbar-back" href="index.html">&larr; Back to Dashboard</a>
+</div>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="toc-group">
+      <div class="toc-group-label">Overview</div>
+      <a class="toc-link" href="#overview">What This Is</a>
+      <a class="toc-link" href="#key-concepts">Key Concepts</a>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-group-label">Live Dashboard</div>
+      <a class="toc-link" href="#needs-call">Needs a Call</a>
+      <a class="toc-link" href="#vetted">Vetted Upcoming Rentals</a>
+      <a class="toc-link" href="#inquiries">Website Inquiries</a>
+      <a class="toc-link" href="#studio-health">Studio Health</a>
+      <a class="toc-link toc-sub" href="#health-metrics">The Five Metrics</a>
+      <a class="toc-link toc-sub" href="#health-tiers">Tier Thresholds</a>
+      <a class="toc-link" href="#chris-payments">Chris Connelly Sessions</a>
+      <a class="toc-link" href="#revenue">Revenue</a>
+      <a class="toc-link toc-sub" href="#revenue-tiles">Stat Tiles &amp; Tables</a>
+      <a class="toc-link toc-sub" href="#revenue-category">Revenue by Category</a>
+      <a class="toc-link toc-sub" href="#revenue-charts">Gross Income Charts</a>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-group-label">Chris Connelly</div>
+      <a class="toc-link" href="#chris-sync">Calendar Sync</a>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-group-label">Data Model</div>
+      <a class="toc-link" href="#sheet-bookings">bookings tab</a>
+      <a class="toc-link" href="#sheet-inquiry">inquiry tab</a>
+      <a class="toc-link" href="#sheet-historical">historical tab</a>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-group-label">Known Issues</div>
+      <a class="toc-link" href="#tz-bug">Calendly Timezone Bug</a>
+    </div>
+
+    <div class="toc-group">
+      <div class="toc-group-label">Admin Reference</div>
+      <a class="toc-link" href="#api">API Actions</a>
+      <a class="toc-link" href="#utilities">One-Time Utilities</a>
+      <a class="toc-link" href="#deployment">Deployment Notes</a>
+      <a class="toc-link" href="#troubleshooting">Troubleshooting</a>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <!-- OVERVIEW -->
+    <section class="manual-section" id="overview">
+      <div class="section-badge">Overview</div>
+      <h2>What This Is</h2>
+      <p>The Central Studio Dashboard is a live operations board for the studio's rental/booking business: who needs a call, what's coming up, open website leads, a quick "is business on pace" read, and revenue reporting. It's built from four moving pieces:</p>
+      <ul>
+        <li><strong>One Google Sheet</strong> is the entire database — <code>bookings</code>, <code>inquiry</code>, and <code>historical</code> tabs. Nothing else stores state.</li>
+        <li><strong>One Apps Script project</strong> (<code>CentralStudio_SM</code>) is the JSON API layer the dashboard talks to. See <a href="#deployment">Deployment Notes</a> for its script ID and deployed Web App URL.</li>
+        <li><strong>A second, smaller Apps Script project</strong> (<code>CentralStudio_SM_CalendarSync</code>) is a one-way bridge that copies Chris Connelly's personal-calendar studio bookings into the same Sheet — see <a href="#chris-sync">Chris Connelly</a>.</li>
+        <li><strong>A static HTML/CSS/JS front end</strong> (<code>web/</code>: <code>index.html</code>, <code>app.js</code>, <code>styles.css</code>) hosted on Ionos, calling the main Apps Script's deployed Web App URL via <code>fetch()</code>.</li>
+      </ul>
+      <div class="callout info"><strong>No logins.</strong> Nothing here has a password or PIN — access is "know the URL." Don't post the link publicly.</div>
+    </section>
+
+    <section class="manual-section" id="key-concepts">
+      <h2>Key Concepts</h2>
+      <ul>
+        <li><strong>The Sheet is the single source of truth.</strong> The dashboard never caches anything server-side — every load reads the live tabs fresh.</li>
+        <li><strong>Columns are matched by header name, not position</strong> (<code>readRows_</code> in <code>Code.js</code>). Reordering columns on the sheet is safe; renaming a header the code depends on will break whatever reads it.</li>
+        <li><strong>Every API response has the same shape:</strong> <code>{ ok: true, data: ... }</code> or <code>{ ok: false, error: "message" }</code>. Reads are <code>GET ?action=X</code>; writes are <code>POST</code> with a JSON body <code>{ action: X, ... }</code>.</li>
+        <li><strong>Chris Connelly is special-cased throughout.</strong> He books via his personal Google Calendar instead of the Calendly form everyone else uses, and several behaviors are hard-coded around his email, <code>chris@chrisconnellyphotography.com</code> (the <code>CHRIS_AUTO_SYNC_EMAIL</code> constant). See <a href="#chris-sync">Chris Connelly</a>.</li>
+        <li><strong>Two separate things have to be deployed independently</strong> — the Apps Script backend and the static frontend. Neither deploy step touches the other. See <a href="#deployment">Deployment Notes</a> — this has bitten us more than once.</li>
+      </ul>
+    </section>
+
+    <!-- NEEDS A CALL -->
+    <section class="manual-section" id="needs-call">
+      <div class="section-badge">Live Dashboard</div>
+      <h2>Needs a Call</h2>
+      <p>Active (non-cancelled) bookings that don't have a <code>Date Called</code> yet. Each card shows the customer's name, a <strong>Regular</strong> badge if they've booked more than once before (by email), the rental date/time, when it was booked, and a tap-to-call/text phone link. Expanding a card reveals every remaining intake field (event type, payment terms, group size, lighting needs, notes, etc).</p>
+      <p><strong>Mark Called</strong> stamps <code>Date Called</code> with the current time and moves the booking to <a href="#vetted">Vetted Upcoming Rentals</a>.</p>
+    </section>
+
+    <!-- VETTED UPCOMING -->
+    <section class="manual-section" id="vetted">
+      <h2>Vetted Upcoming Rentals</h2>
+      <p>Called bookings, sorted soonest-first by event date/time. Only the next <strong>5 days</strong> show by default (a "Show N more" button reveals the rest without a second fetch — bookings with no parseable event date always sort last, into that "more" bucket).</p>
+      <ul>
+        <li><strong>Undo Call</strong> clears <code>Date Called</code>, sending the booking back to Needs a Call.</li>
+        <li><strong>Complete &amp; Close</strong> opens a modal asking for the final payment amount. Submitting sets <code>Total Paid</code>, which removes the booking from the dashboard entirely — for everyone except Chris (next point).</li>
+      </ul>
+      <div class="callout info">
+        <strong>Chris Connelly is the one exception.</strong> His rows get <code>Total Paid</code> pre-filled to <code>$150</code> automatically the moment the Calendar Sync creates them — before the rental has even happened. If the normal rule applied, he'd vanish from the dashboard immediately. So specifically for his email, "completed" bookings stay visible in Vetted Upcoming Rentals until the event's actual start time passes, then drop off like everyone else's.
+      </div>
+      <p>A booking only ever leaves the dashboard because <code>Total Paid</code> got set — a past event date alone does <em>not</em> hide it, since past bookings may still need calling or closing out.</p>
+    </section>
+
+    <!-- INQUIRIES -->
+    <section class="manual-section" id="inquiries">
+      <h2>Website Inquiries Needing Follow-up</h2>
+      <p><code>inquiry</code> tab rows where <code>Date Contacted</code> is still blank. Each card shows name/phone/email, desired rental date, and the project description they submitted. <strong>Log Contact</strong> opens a modal with an optional note (appended with a timestamp — repeat follow-up attempts build a history rather than overwriting each other) and a choice:</p>
+      <ul>
+        <li><strong>Close Inquiry</strong> — sets <code>Date Contacted</code>, removing it from this list for good.</li>
+        <li><strong>Leave Open for Follow-up</strong> — just logs the note/attempt timestamp and keeps it open.</li>
+      </ul>
+    </section>
+
+    <!-- STUDIO HEALTH -->
+    <section class="manual-section" id="studio-health">
+      <div class="section-badge">Live Dashboard</div>
+      <h2>Studio Health</h2>
+      <p>A fast "is the business on pace" read, sitting above Revenue. Five tiles, each comparing this month's number against a baseline and scoring it. Backed by <code>getStudioHealth()</code> in <code>Code.js</code>.</p>
+    </section>
+
+    <section class="manual-section" id="health-metrics">
+      <h3>The Five Metrics</h3>
+      <table class="manual-table">
+        <tr><th>Metric</th><th>What it counts</th><th>Baseline</th></tr>
+        <tr><td><strong>Inquiries This Month</strong></td><td>Count of <code>inquiry</code> rows whose <code>Submitted At</code> falls in the current month.</td><td>Average of this year's completed months (Jan through last month) — never the in-progress current month.</td></tr>
+        <tr><td><strong>Rentals This Month</strong></td><td>Count of active bookings whose <strong>Event Date</strong> falls in the current month — deliberately the same basis Revenue uses, so "rentals" and "revenue" always agree on what "this month" means.</td><td>Same year-so-far monthly average approach.</td></tr>
+        <tr><td><strong>Unique Customers</strong></td><td>Distinct customers (by email, falling back to name) among active bookings with an Event Date in the current month.</td><td><strong>Last month</strong>, not a yearly average — correctly looks back across a year boundary in January.</td></tr>
+        <tr><td><strong>Inquiry &rarr; Booking Rate</strong></td><td>Of this month's inquiries, the % whose email or phone also appears on an active booking (any date, not just this month) — see the caveat below.</td><td>Average of this year's completed months' rates.</td></tr>
+        <tr><td><strong>Repeat Customer Rate</strong></td><td>Of this month's active bookings (by Event Date), the % from a customer with more than one booking <em>ever</em> (all-time email count).</td><td>Average of this year's completed months' rates.</td></tr>
+      </table>
+      <div class="callout warn">
+        <strong>Conversion rate is a heuristic, not a real link.</strong> There's no shared ID between the <code>inquiry</code> and <code>bookings</code> tabs — a match is "same email or phone shows up in both," not a guaranteed causal relationship. It also structurally understates recent months: a lead from three days ago hasn't necessarily had time to book yet, so mid-month conversion numbers read low until the month has had time to play out. Cancelled bookings never count as a conversion.
+      </div>
+      <div class="callout warn">
+        <strong>Inquiries' baseline can be misleadingly low.</strong> It was observed live at <code>0.0</code> for a month that already had real inquiries — meaning none of this year's completed months have <code>inquiry</code> rows with a valid <code>Submitted At</code> date. That could mean dated logging only started recently, or that rows get cleared out of the tab after they're closed. Worth checking directly in the sheet before trusting a "Great" rating that's being compared against an artificially-low average.
+      </div>
+    </section>
+
+    <section class="manual-section" id="health-tiers">
+      <h3>Tier Thresholds</h3>
+      <p>Every metric is scored the same way — <code>value ÷ baseline</code> — via <code>tierFor_()</code>:</p>
+      <table class="manual-table">
+        <tr><th>Ratio</th><th>Tier</th><th>Shown as</th></tr>
+        <tr><td>&ge; 110% of baseline</td><td><span class="tier-chip great">&#9650; Great</span></td><td>Teal left border, teal status chip</td></tr>
+        <tr><td>80% – 110% of baseline</td><td><span class="tier-chip okay">&#9679; On Pace</span></td><td>Slate left border, slate status chip</td></tr>
+        <tr><td>&lt; 80% of baseline</td><td><span class="tier-chip low">&#9660; Needs Attention</span></td><td>Red left border, red status chip</td></tr>
+        <tr><td>No usable baseline yet (e.g. January, or too little data)</td><td><span class="tier-chip neutral">&ndash; No Data Yet</span></td><td>Gray left border, gray status chip</td></tr>
+      </table>
+      <p>Status is always communicated by an icon <em>and</em> text label alongside the color, never color alone.</p>
+    </section>
+
+    <!-- CHRIS CONNELLY PAYMENTS -->
+    <section class="manual-section" id="chris-payments">
+      <div class="section-badge">Live Dashboard</div>
+      <h2>Chris Connelly Sessions</h2>
+      <p>Chris doesn't pay per session — he settles up in blocks of <strong>25</strong>. This gauge, sitting between Studio Health and Revenue, tracks that separately from the <code>Total Paid</code> field Revenue reads (which is just the hardcoded $150/session bookkeeping number filled in automatically at sync time — see <a href="#chris-sync">Calendar Sync</a>). Backed by <code>getChrisPaymentStatus_()</code> in <code>Code.js</code>, and included in every <code>getData</code> response as <code>chrisPaymentStatus</code>.</p>
+      <ul>
+        <li><strong>Unpaid Sessions</strong> — count of Chris's active (non-cancelled) <code>bookings</code> rows where <code>Session Paid Date</code> is still blank <em>and</em> the <code>Event Date</code> has already passed. Same "is this Chris" rule the revenue category cards use (<code>categorizeBooking_()</code>), so the two never disagree about what counts as one of his sessions. A future booking doesn't count as owed yet, even if unpaid — he hasn't shown up for it. Rows with no parseable <code>Event Date</code> are excluded too, since there's no way to confirm they're in the past.</li>
+        <li><strong>The gauge bar</strong> fills 0&ndash;25 and visually caps at a full bar once unpaid hits the block size &mdash; but the number above it keeps counting past 25, since Chris can keep booking while an invoice is outstanding. A tick mark on the bar flags 15, the usual invoice point.</li>
+        <li><strong>Color tiers:</strong> teal under 15, amber 15&ndash;24 (invoice territory), red at 25+ (a full block or more owed).</li>
+        <li><strong>Apply Payment &mdash; Oldest 25</strong> opens a confirmation modal, then stamps today's date into <code>Session Paid Date</code> on the oldest unpaid, already-happened sessions by <strong>Event Date</strong>, up to one block of 25 (fewer if less than 25 qualify). Disabled when nothing qualifies.</li>
+      </ul>
+      <div class="callout warn">
+        <strong>Requires a one-time setup step.</strong> The <code>Session Paid Date</code> column doesn't exist on the <code>bookings</code> tab until <code>setupChrisPaymentColumn()</code> is run once from the Apps Script editor (see <a href="#utilities">One-Time / Manual Utilities</a>). Until then every session reads as unpaid, and clicking Apply Payment will error.
+      </div>
+    </section>
+
+    <!-- REVENUE -->
+    <section class="manual-section" id="revenue">
+      <div class="section-badge">Live Dashboard</div>
+      <h2>Revenue</h2>
+      <p>Backed by <code>getRevenueStats()</code>. "Revenue" always means <strong>Total Paid, summed by Event Date's month</strong> — never Date Booked.</p>
+    </section>
+
+    <section class="manual-section" id="revenue-tiles">
+      <h3>Stat Tiles &amp; Tables</h3>
+      <ul>
+        <li><strong>YTD This Year</strong>, <strong>Avg / Month</strong> (with last year's monthly average as a subvalue), <strong>Last Year Total</strong>, <strong>YTD vs Last Year</strong> (dollar diff + %, colored gain/loss).</li>
+        <li><strong>Monthly table:</strong> This Year, % of Previous Month, % of Last Year's Average, Last Year, % Change — current month row highlighted.</li>
+        <li><strong>Quarterly table:</strong> This Year vs Last Year vs % Change, by quarter.</li>
+      </ul>
+      <p>All of this comes from the <a href="#sheet-historical"><code>historical</code> tab</a>, not live bookings — see that section for why, and for a known small-drift caveat between this and the category cards below.</p>
+    </section>
+
+    <section class="manual-section" id="revenue-category">
+      <h3>Revenue by Category</h3>
+      <p>Three cards plus a donut chart, always summing to the same total. Computed <strong>live from the <code>bookings</code> tab</strong> (not <code>historical</code>) via <code>categorizeBooking_()</code>:</p>
+      <table class="manual-table">
+        <tr><th>Category</th><th>Rule</th></tr>
+        <tr><td><strong>Chris Connelly</strong></td><td><code>Invitee Name</code> equals "Chris Connelly" (trimmed, case-insensitive).</td></tr>
+        <tr><td><strong>Monster Productions</strong></td><td><code>Event Type</code> equals "Monster Productions Shoot" (trimmed, case-insensitive).</td></tr>
+        <tr><td><strong>Studio Rentals</strong></td><td>Everything else — the residual bucket.</td></tr>
+      </table>
+      <div class="callout warn">
+        <strong>Can drift slightly from "YTD This Year."</strong> The category cards read <code>bookings</code> live; the YTD stat tile reads the frozen <code>historical</code> tab. If a booking's <code>Total Paid</code> gets filled in <em>after</em> its month has already closed out in <code>historical</code> (a late payment logged weeks later, say), the category total for that month will reflect it and the historical YTD figure won't, until someone re-syncs or manually edits <code>historical</code>.
+      </div>
+    </section>
+
+    <section class="manual-section" id="revenue-charts">
+      <h3>Gross Income Charts</h3>
+      <p><strong>Gross Income</strong> — four lines over the current calendar year, all built from data already in <code>getRevenueStats()</code> (no extra backend calls):</p>
+      <ul>
+        <li><strong>This Year</strong> (solid blue) — stops at the current, in-progress month. Future months are never drawn as a fabricated <code>$0</code>; the frontend nulls out any month past "now" before charting, even if the sheet happens to hold a placeholder <code>$0</code> row for it.</li>
+        <li><strong>Last Year</strong> (dashed gray) — the full prior year, since it's fully closed out.</li>
+        <li><strong>Trend</strong> (dotted red) — a linear regression fit to this year's known months only.</li>
+        <li><strong>Last Year Avg</strong> (solid green, direct end-label "LY Avg") — flat reference line.</li>
+      </ul>
+      <p><strong>Monthly Gross Since Opening</strong> — the full <code>historical</code> tab from the earliest row to the current month (also excludes not-yet-reached months), solid blue actual + dotted blue trend line, with x-axis labels thinned out to whatever fits without overlapping.</p>
+      <div class="callout tip">Both charts have a hover crosshair + tooltip showing every series' value for that month — nothing is hidden behind hover-only; the same numbers are in the tables above.</div>
+    </section>
+
+    <!-- CHRIS CONNELLY -->
+    <section class="manual-section" id="chris-sync">
+      <div class="section-badge">Chris Connelly</div>
+      <h2>Calendar Sync</h2>
+      <p>Chris books his own studio time directly on his personal Google Calendar instead of using the Calendly form everyone else goes through. A separate Apps Script project, <code>CentralStudio_SM_CalendarSync</code>, is the bridge — see <a href="#deployment">Deployment Notes</a> for its script ID.</p>
+      <ol>
+        <li><strong>Looks 6 months ahead</strong> on Chris's calendar (<code>chris@chrisconnellyphotography.com</code>) every time it runs.</li>
+        <li><strong>Filters by address, not title</strong> — only events whose Location field contains <code>1095</code> (the studio's street number) get synced, so his personal appointments are never copied over.</li>
+        <li><strong>Skips already-synced bookings</strong> by matching on the source event's ID (stamped invisibly in the business event's description), not its title — so a booking Chris renamed or moved is still recognized.</li>
+        <li><strong>Creates a business-calendar event</strong> plus one <code>bookings</code> row: <code>Invitee Name</code> = "Chris Connelly", <code>Invitee Email</code> = his address (which also makes the "Regular" badge work automatically), <code>Event Type</code> hardcoded to "4 Hour - Studio Rental", <code>Event Date</code> = the real event start time, <code>Date Called</code> = "N/A" (keeps it out of Needs a Call), <code>Total Paid</code> hardcoded to <code>150</code>, <code>Booking Status</code> = "Upcoming". If the booking was already synced and Chris later renamed/moved it, the existing business event (and its sheet row's date) are updated instead.</li>
+        <li><strong>Checks for cancellations hourly.</strong> His policy: cancel 72+ hours out and it's really cancelled (event + sheet row deleted); cancel with less notice and he's still billed, so the record is deliberately left alone.</li>
+      </ol>
+      <div class="callout warn">
+        <strong>Known constraints:</strong> no error alerts if anything fails partway; one-directional only (business calendar is never read back into Chris's calendar); <code>Event Type</code> and the <code>$150</code> price are both hardcoded regardless of what actually happened; cancellation auto-detection needs a Source Event ID — new syncs always have one, and the older backlog is covered once <code>backfillSourceEventIds()</code> has been run (anything it can't match is handled by the one-time <code>previewChrisOrphanCleanup()</code> / <code>applyChrisOrphanCleanup()</code>); a genuine 72+ hour cancellation <strong>permanently deletes</strong> the sheet row — unlike a normal Calendly cancellation, there's no "cancelled" record left behind.
+      </div>
+    </section>
+
+    <!-- DATA MODEL -->
+    <section class="manual-section" id="sheet-bookings">
+      <div class="section-badge">Data Model</div>
+      <h2><code>bookings</code> tab</h2>
+      <p>One row per rental. Non-cancelled = <code>Booking Status</code> doesn't contain "cancel" (case-insensitive).</p>
+      <table class="manual-table">
+        <tr><th>Column</th><th>Used for</th></tr>
+        <tr><td><code>Invitee Name</code> / <code>Invitee Email</code> / <code>Phone</code></td><td>Identity, "Regular" detection (repeat email), Chris/Calendly special-casing, category attribution.</td></tr>
+        <tr><td><code>Date Booked</code></td><td>Displayed only — "Booked {date}" on cards. Was also affected by the <a href="#tz-bug">timezone bug</a>.</td></tr>
+        <tr><td><code>Event Date</code></td><td>The one field almost everything hangs off: rental date/time display, sort order, Revenue month bucketing, Studio Health's rentals/unique-customers/repeat-rate, category attribution's date filter.</td></tr>
+        <tr><td><code>Event Type</code></td><td>Displayed, and drives the "Monster Productions" revenue category.</td></tr>
+        <tr><td><code>Date Called</code></td><td>Truthy = in Vetted Upcoming Rentals; blank = Needs a Call. Chris's rows get <code>"N/A"</code> at sync time.</td></tr>
+        <tr><td><code>Total Paid</code></td><td>Truthy = "completed," normally removes the booking from the dashboard. Also what Revenue sums.</td></tr>
+        <tr><td><code>Booking Status</code></td><td>Contains "cancel" &rarr; excluded from every active-booking calculation everywhere.</td></tr>
+        <tr><td><code>Session Paid Date</code></td><td>Chris-only. Blank = counted as unpaid by the <a href="#chris-payments">Chris Connelly Sessions</a> gauge; set by <strong>Apply Payment</strong>. Must be added to the sheet first via <code>setupChrisPaymentColumn()</code> &mdash; unrelated to <code>Total Paid</code>, which is a separate, always-hardcoded $150 bookkeeping figure.</td></tr>
+        <tr><td>Amount Paid, Payment Terms, Group Over 8, Type of Work, Lighting Equipment, Needs House Photographer, Been to Studio Before, First Time Renting, Total Price Quoted, Anything We Need to Know, Notes</td><td>Intake detail, shown in the expanded card view only. Not populated for Chris's synced rows (no Calendly form for him).</td></tr>
+      </table>
+    </section>
+
+    <section class="manual-section" id="sheet-inquiry">
+      <h2><code>inquiry</code> tab</h2>
+      <p>One row per website lead. The <code>data__</code> prefix on several columns suggests these arrive through a generic webhook-parsing step (e.g. a Zapier "Catch Hook" style integration) rather than a native Calendly connection.</p>
+      <table class="manual-table">
+        <tr><th>Column</th><th>Used for</th></tr>
+        <tr><td><code>data__Name</code> / <code>data__Phone Number</code> / <code>data__Email</code></td><td>Contact info shown on inquiry cards; email/phone also feed Studio Health's conversion-rate matching.</td></tr>
+        <tr><td><code>data__Desired Rental Date</code> / <code>data__Project Description</code></td><td>Displayed on the card.</td></tr>
+        <tr><td><code>Submitted At</code></td><td>Month bucketing for Studio Health's inquiry count and conversion rate.</td></tr>
+        <tr><td><code>Date Contacted</code></td><td>Truthy &rarr; closed, drops off Website Inquiries Needing Follow-up.</td></tr>
+        <tr><td><code>Notes</code> / <code>Last Contact Attempt</code></td><td>Append-only note log + timestamp of the most recent follow-up attempt, written by "Log Contact."</td></tr>
+      </table>
+    </section>
+
+    <section class="manual-section" id="sheet-historical">
+      <h2><code>historical</code> tab</h2>
+      <p>Two columns: <code>Month</code> (e.g. <code>Aug-26</code>) and <code>Revenue</code>. One row per calendar month — this is what all the top-level Revenue numbers and both Gross Income charts read from, <strong>not</strong> a live query of <code>bookings</code>.</p>
+      <ul>
+        <li><strong>Why it exists:</strong> past months are frozen snapshots so they don't silently shift as old bookings data changes, and so the dashboard doesn't have to re-scan every booking ever made on every load.</li>
+        <li><strong>The current month auto-syncs hourly</strong> (<code>syncCurrentMonthRevenue_</code>, installed by the one-time <code>setupHistoricalRevenueSync</code>): it recomputes that row's total live from <code>bookings</code> and shows it in <em>italics</em> on the dashboard as a "still moving" flag. Every other row gets reset to normal font.</li>
+        <li><strong>A parsing quirk to know about:</strong> a label like <code>Sep-26</code> gets silently misread by Sheets as "month, day-of-month" (no year) rather than "month, two-digit year," and auto-converted to a Date with some unrelated year. <code>parseHistoricalMonth_()</code> works around this by recovering the real year from the day-of-month digits it lands on instead of trusting <code>getFullYear()</code>.</li>
+      </ul>
+    </section>
+
+    <!-- KNOWN ISSUES -->
+    <section class="manual-section" id="tz-bug">
+      <div class="section-badge">Known Issue</div>
+      <h2>Calendly Timezone Bug</h2>
+      <p>Calendly bookings (everyone except Chris) arrive via a <strong>Zap</strong> that writes the Calendly start time straight into the sheet without converting it from UTC first. Google Sheets has no way to know the number it's looking at is UTC — it just reads e.g. <code>18:00:00</code> as if it were already 6:00 PM <em>America/New_York</em>, when it actually meant 6:00 PM UTC (2:00 PM Eastern during EDT). Every Calendly-sourced <code>Event Date</code> and <code>Date Booked</code> ends up shifted by a fixed few hours. Chris's rows are unaffected — his come from the Calendar API as real timezone-aware instants, never an unconverted string.</p>
+
+      <div class="callout bad">
+        <strong>The Zap itself still needs fixing.</strong> A one-time backfill (below) corrects rows already sitting in the sheet, but it does nothing for new bookings. Add a <strong>Formatter by Zapier &rarr; Date/Time</strong> step between the Calendly trigger and the Google Sheets action that converts the start-time field <strong>from UTC to America/New_York</strong>, and make sure the Sheets step's <code>Event Date</code> (and <code>Date Booked</code>, if it's also sourced from Calendly) is mapped from that converted output — not the raw Calendly field.
+      </div>
+
+      <h3>The One-Time Backfill</h3>
+      <p><code>Code.js</code> has two functions for correcting rows already in the sheet, meant to be run manually from the Apps Script editor:</p>
+      <table class="manual-table">
+        <tr><th>Function</th><th>What it does</th></tr>
+        <tr><td><code>previewCalendlyTimezoneFix()</code></td><td><strong>Run this first.</strong> Logs every change it would make (old time &rarr; new time, per row) without writing anything.</td></tr>
+        <tr><td><code>applyCalendlyTimezoneFix()</code></td><td>Writes the corrected <code>Event Date</code> and <code>Date Booked</code> values. Skips Chris's rows. Refuses to run a second time (guarded by a <code>calendlyTzFixAppliedAt</code> script property) so an accidental re-click can't shift already-corrected rows again.</td></tr>
+      </table>
+      <p>The correction itself (<code>reinterpretEasternDigitsAsUtc_</code>) reads the wrong stored instant's <em>Eastern wall-clock digits</em> — that's the original UTC value Calendly sent, carried through unconverted — and rebuilds a new instant treating those same digits as UTC. This is DST-safe automatically with no manual 4-vs-5-hour table, because <code>Utilities.formatDate</code> already applies the correct rule for whatever date each row falls on.</p>
+
+      <div class="callout info">
+        <strong>How this was diagnosed</strong> (worth knowing for the next weird-data report): pasting the live <code>?action=...</code> URLs directly (bypassing the dashboard/browser entirely) is the fastest way to tell a backend problem from a frontend one. A stuck-on-"Loading…" section with no visible error usually means either the API is erroring (check the raw response) or the browser is holding a stale cached copy of <code>index.html</code>/<code>app.js</code> (hard refresh / incognito rules that out).
+      </div>
+    </section>
+
+    <!-- ADMIN REFERENCE -->
+    <section class="manual-section" id="api">
+      <div class="section-badge">Admin Reference</div>
+      <h2>API Actions</h2>
+      <table class="manual-table">
+        <tr><th>Method</th><th>Action</th><th>Returns</th></tr>
+        <tr><td>GET</td><td><code>getData</code></td><td>Needs a Call, Vetted Upcoming Rentals, Website Inquiries.</td></tr>
+        <tr><td>GET</td><td><code>getRevenue</code></td><td>Stat tiles, monthly/quarterly tables, revenue by category, both Gross Income chart datasets.</td></tr>
+        <tr><td>GET</td><td><code>getStudioHealth</code></td><td>The five Studio Health tiles.</td></tr>
+        <tr><td>POST</td><td><code>toggleBookingCalled</code></td><td>Sets/clears <code>Date Called</code>. Body: <code>{ row, value }</code>.</td></tr>
+        <tr><td>POST</td><td><code>completeBooking</code></td><td>Sets <code>Total Paid</code>. Body: <code>{ row, amount }</code>.</td></tr>
+        <tr><td>POST</td><td><code>updateInquiry</code></td><td>Appends a note and/or sets <code>Date Contacted</code>. Body: <code>{ row, note, close }</code>.</td></tr>
+        <tr><td>POST</td><td><code>applyChrisPayment</code></td><td>Stamps today's date into <code>Session Paid Date</code> on the oldest unpaid Chris sessions, up to one block of 25. No body.</td></tr>
+      </table>
+    </section>
+
+    <section class="manual-section" id="utilities">
+      <h2>One-Time / Manual Utilities</h2>
+      <p>None of these are wired into <code>doGet</code>/<code>doPost</code> — they only run when someone selects them in the Apps Script editor and clicks Run.</p>
+      <table class="manual-table">
+        <tr><th>Function</th><th>Purpose</th></tr>
+        <tr><td><code>setupBookingsPastEventFormatting</code></td><td>Adds a conditional-format rule that grays out any bookings row whose Event Date has passed. Formula-based (<code>TODAY()</code>), so it self-maintains — no need to re-run.</td></tr>
+        <tr><td><code>setupHistoricalRevenueSync</code></td><td>Installs the hourly trigger for <code>syncCurrentMonthRevenue_</code> (keeps the current month's <code>historical</code> row live + italicized) and runs it once immediately.</td></tr>
+        <tr><td><code>previewCalendlyTimezoneFix</code> / <code>applyCalendlyTimezoneFix</code></td><td>See <a href="#tz-bug">Calendly Timezone Bug</a>.</td></tr>
+        <tr><td><code>setupChrisPaymentColumn</code></td><td>Adds the <code>Session Paid Date</code> header to the <code>bookings</code> tab if it isn't already there. Safe to re-run — a no-op once the column exists. Required once before <a href="#chris-payments">Apply Payment</a> will work.</td></tr>
+      </table>
+    </section>
+
+    <section class="manual-section" id="deployment">
+      <h2>Deployment Notes</h2>
+      <table class="manual-table">
+        <tr><th>Project</th><th>Script ID</th></tr>
+        <tr><td><code>CentralStudio_SM</code> (main dashboard backend)</td><td><code>1Mcs7rEvITyUHYmD3CV6Ua_zWa4oP8Vb8rGv9CXbD95UC9z51u225_0M4</code></td></tr>
+        <tr><td><code>CentralStudio_SM_CalendarSync</code> (Chris's bridge)</td><td><code>1c0aov7lNdKpaTqKY7aw8gv2jElN5jFQWN46FqGNsnkiemZczzdAIEgKE</code></td></tr>
+      </table>
+      <div class="callout bad">
+        <strong>A backend change needs two steps, not one.</strong> <code>clasp push</code> only updates the project's saved source (HEAD) — it does <em>not</em> move the live <code>/exec</code> URL forward, because that URL is pinned to a specific deployment version. After <code>clasp push</code>, also run <code>clasp deploy -i &lt;deploymentId&gt;</code> against the existing deployment ID, or the dashboard keeps calling old code indefinitely. (Editor-run-only utility functions, like the timezone-fix ones, don't need this — they always run against the latest saved source regardless of what's deployed.)
+      </div>
+      <div class="callout bad">
+        <strong>Adding a new Apps Script service can 403 the whole web app.</strong> The deployment runs "as the user who deployed it," and that authorization is scoped to whatever Google services the code used <em>at the time it was authorized</em>. The first time newly-added code calls a service it never called before (this happened with <code>PropertiesService</code>), every <code>doGet</code>/<code>doPost</code> action starts failing with an HTTP 403 until someone manually runs any function once in the Apps Script editor and clicks through the new permission prompt. This affects the <em>whole</em> deployment, not just the function that added the new call — which is why unrelated sections can appear to break at the same time as an unrelated change.
+      </div>
+      <div class="callout warn">
+        <strong>The frontend deploys completely separately.</strong> <code>web/index.html</code>, <code>app.js</code>, and <code>styles.css</code> go to Ionos by manual upload — <code>clasp</code> never touches them. Ionos doesn't send <code>Cache-Control</code> headers on these files, so after deploying, a hard refresh (or incognito window) may be needed to see the change; a normal reload can silently reuse a stale cached copy.
+      </div>
+    </section>
+
+    <section class="manual-section" id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <table class="manual-table">
+        <tr><th>Symptom</th><th>Likely cause / what to check</th></tr>
+        <tr><td>A section is stuck on "Loading…" forever, no error shown</td><td>Usually a stale browser cache of <code>index.html</code>/<code>app.js</code> (hard refresh), or the backend returning something other than JSON (curl the live <code>?action=...</code> URL directly to check — see <a href="#tz-bug">Known Issues</a>).</td></tr>
+        <tr><td>Every section fails at once right after a backend change</td><td>Check for a new Google service being called for the first time — see the 403/reauth callout in <a href="#deployment">Deployment Notes</a>.</td></tr>
+        <tr><td>"Revenue by Category" total doesn't quite match "YTD This Year"</td><td>Expected in rare cases — see the drift caveat in <a href="#revenue-category">Revenue by Category</a>.</td></tr>
+        <tr><td>A booking's date/time looks wrong</td><td>Only ever affected Calendly-sourced bookings, never Chris's. See <a href="#tz-bug">Calendly Timezone Bug</a>.</td></tr>
+        <tr><td>Pushed backend code, but the dashboard doesn't reflect it</td><td><code>clasp push</code> alone doesn't move the live deployment — see <a href="#deployment">Deployment Notes</a>.</td></tr>
+      </table>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

@@ -21,6 +21,9 @@ function doGet(e) {
     if (action === 'getRevenue') {
       return jsonOutput_({ ok: true, data: getRevenueStats() });
     }
+    if (action === 'getStudioHealth') {
+      return jsonOutput_({ ok: true, data: getStudioHealth() });
+    }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return jsonOutput_({ ok: false, error: err.message });
@@ -38,6 +41,9 @@ function doPost(e) {
     }
     if (body.action === 'updateInquiry') {
       return jsonOutput_({ ok: true, data: updateInquiry(body.row, body.note, body.close) });
+    }
+    if (body.action === 'applyChrisPayment') {
+      return jsonOutput_({ ok: true, data: applyChrisSessionPayment() });
     }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + body.action });
   } catch (err) {
@@ -80,13 +86,16 @@ function isDate_(val) {
   return !!val && typeof val.getTime === 'function' && Object.prototype.toString.call(val) === '[object Date]';
 }
 
+function parseDateValue_(val) {
+  if (isDate_(val)) return val;
+  if (!val) return null;
+  const parsed = new Date(val);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
 // Event Date holds a full date+time value (no separate Event Time column).
 function parseEventDateTime_(row) {
-  const dateVal = row['Event Date'];
-  if (isDate_(dateVal)) return dateVal;
-  if (!dateVal) return null;
-  const parsed = new Date(dateVal);
-  return isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateValue_(row['Event Date']);
 }
 
 function formatDate_(val, pattern) {
@@ -100,6 +109,15 @@ function formatDate_(val, pattern) {
 // right away — for Chris specifically we keep it visible in Vetted Upcoming
 // Rentals until the event date passes, then let it drop off like normal.
 const CHRIS_AUTO_SYNC_EMAIL = 'chris@chrisconnellyphotography.com';
+
+// Chris doesn't pay per session — he settles up in blocks of 25, invoiced
+// roughly when the unpaid count hits 15 (see manual.html#chris-payments).
+// "Total Paid" stays hardcoded to $150/session at sync time (that's revenue
+// bookkeeping); this column is the separate, real record of when a block was
+// actually paid. Must exist as a header on the bookings tab — see
+// setupChrisPaymentColumn().
+const CHRIS_PAID_DATE_COL = 'Session Paid Date';
+const CHRIS_SESSIONS_PER_BLOCK = 25;
 
 function getDashboardData() {
   const bookings = readRows_(CONFIG.BOOKINGS_TAB);
@@ -187,6 +205,7 @@ function getDashboardData() {
     needsCall: needsCall,
     vettedUpcoming: vettedUpcoming,
     openInquiries: openInquiries,
+    chrisPaymentStatus: getChrisPaymentStatus_(),
     generatedAt: formatDate_(new Date(), 'EEE, MMM d, yyyy h:mm a'),
   };
 }
@@ -239,6 +258,97 @@ function updateInquiry(rowNumber, note, close) {
   return getDashboardData();
 }
 
+// Chris's active (non-cancelled) session rows, in raw sheet-row order — the
+// same "is this a Chris booking" rule the revenue category cards use, reused
+// here so the two never disagree about what counts as one of his sessions.
+function getChrisSessionRows_(bookings) {
+  return bookings.filter(function (b) {
+    const status = (b['Booking Status'] || '').toString().toLowerCase();
+    if (status.indexOf('cancel') !== -1) return false;
+    return categorizeBooking_(b) === 'chris';
+  });
+}
+
+function sortByEventDateAsc_(rows) {
+  rows.sort(function (a, b) {
+    const ea = parseEventDateTime_(a);
+    const eb = parseEventDateTime_(b);
+    const ta = ea ? ea.getTime() : Number.MAX_SAFE_INTEGER;
+    const tb = eb ? eb.getTime() : Number.MAX_SAFE_INTEGER;
+    return ta - tb;
+  });
+  return rows;
+}
+
+// Unpaid Chris sessions that have actually happened (Event Date in the past),
+// oldest first. A future booking isn't "owed" yet just because it's unpaid —
+// he hasn't shown up for it. Rows with no parseable Event Date are excluded
+// too, since there's no way to confirm they're in the past. Shared by the
+// gauge (count) and Apply Payment (which rows to mark) so they never disagree.
+function getChrisUnpaidPastSessions_(bookings) {
+  const now = Date.now();
+  return sortByEventDateAsc_(getChrisSessionRows_(bookings).filter(function (b) {
+    if (b[CHRIS_PAID_DATE_COL]) return false;
+    const eventDate = parseEventDateTime_(b);
+    return !!eventDate && eventDate.getTime() < now;
+  }));
+}
+
+// Powers the payment gauge: how many of Chris's already-happened sessions have
+// no CHRIS_PAID_DATE_COL value yet, plus when the most recent block was paid.
+function getChrisPaymentStatus_() {
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const unpaid = getChrisUnpaidPastSessions_(bookings);
+
+  let lastPaymentDate = null;
+  getChrisSessionRows_(bookings).forEach(function (b) {
+    const paid = parseDateValue_(b[CHRIS_PAID_DATE_COL]);
+    if (paid && (!lastPaymentDate || paid > lastPaymentDate)) lastPaymentDate = paid;
+  });
+
+  return {
+    unpaidCount: unpaid.length,
+    blockSize: CHRIS_SESSIONS_PER_BLOCK,
+    lastPaymentDate: lastPaymentDate ? formatDate_(lastPaymentDate, 'MMM d, yyyy') : null,
+  };
+}
+
+// Marks the oldest (by Event Date) unpaid, already-happened Chris sessions as
+// paid today, up to one block of 25 — matches how he actually pays (a lump
+// sum covering whatever's oldest and unpaid, not necessarily an exact
+// multiple of 25 if he kept booking while an invoice was outstanding).
+function applyChrisSessionPayment() {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const col = headers.indexOf(CHRIS_PAID_DATE_COL) + 1;
+  if (col === 0) {
+    throw new Error(
+      '"' + CHRIS_PAID_DATE_COL + '" column not found on the bookings tab — ' +
+      'run setupChrisPaymentColumn() once from the Apps Script editor.'
+    );
+  }
+
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const toMark = getChrisUnpaidPastSessions_(bookings).slice(0, CHRIS_SESSIONS_PER_BLOCK);
+
+  const today = new Date();
+  toMark.forEach(function (b) { sheet.getRange(b._row, col).setValue(today); });
+
+  return getDashboardData();
+}
+
+// One-time setup utility — run manually from the Apps Script editor (Run >
+// setupChrisPaymentColumn). Adds the "Session Paid Date" header to the
+// bookings tab if it isn't already there. Safe to re-run — a no-op once the
+// column exists.
+function setupChrisPaymentColumn() {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf(CHRIS_PAID_DATE_COL) !== -1) return;
+  sheet.getRange(1, lastCol + 1).setValue(CHRIS_PAID_DATE_COL);
+}
+
 // One-time setup utility — run manually from the Apps Script editor (Run > setupBookingsPastEventFormatting).
 // Adds a conditional format rule that grays out any bookings row whose Event Date has
 // already passed. Uses TODAY() in the formula so it keeps working automatically as dates
@@ -265,6 +375,96 @@ function setupBookingsPastEventFormatting() {
 
   rules.push(pastEventRule);
   sheet.setConditionalFormatRules(rules);
+}
+
+// ---------------------------------------------------------------------------
+// One-time fix: Calendly bookings (everyone except Chris) arrive via a Zap
+// that writes the Calendly UTC start-time straight into the sheet without
+// converting it to Eastern first. Google Sheets then reads e.g. "18:00:00"
+// as if it were already 6:00 PM America/New_York, when it actually meant
+// 6:00 PM UTC (= 2:00 PM Eastern during EDT). Every Calendly-sourced row is
+// shifted by a fixed few hours as a result; Chris's rows are unaffected
+// since those come from the Calendar API as real timezone-aware instants,
+// never as an unconverted UTC string.
+//
+// The fix: take the wrong stored instant, read off its Eastern wall-clock
+// digits (that's the original UTC value Calendly sent, carried through
+// unchanged), and rebuild a new instant treating those same digits as UTC.
+// This is DST-safe automatically — no manual 4-vs-5-hour table needed —
+// because Utilities.formatDate already applies the correct rule for
+// whatever date each row happens to fall on.
+//
+// Run previewCalendlyTimezoneFix() FIRST and check the log (View > Logs /
+// Executions) against a few bookings you know the real time of. Only run
+// applyCalendlyTimezoneFix() once you're confident the preview is right —
+// it writes to the sheet and cannot be undone by re-running it (a second
+// run would shift everything again, which is why it refuses to run twice).
+// ---------------------------------------------------------------------------
+
+function reinterpretEasternDigitsAsUtc_(date) {
+  const parts = Utilities.formatDate(date, 'America/New_York', 'yyyy-MM-dd-HH-mm-ss').split('-');
+  return new Date(Date.UTC(
+    Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]),
+    Number(parts[3]), Number(parts[4]), Number(parts[5])
+  ));
+}
+
+function runCalendlyTimezoneFix_(dryRun) {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const eventDateCol = headers.indexOf('Event Date') + 1;
+  const dateBookedCol = headers.indexOf('Date Booked') + 1;
+  if (eventDateCol === 0) throw new Error('Event Date column not found');
+  if (dateBookedCol === 0) throw new Error('Date Booked column not found');
+
+  const rows = readRows_(CONFIG.BOOKINGS_TAB);
+  let correctedRows = 0, skippedChris = 0, skippedNoDate = 0;
+
+  rows.forEach(r => {
+    const email = (r['Invitee Email'] || '').toString().trim().toLowerCase();
+    if (email === CHRIS_AUTO_SYNC_EMAIL) { skippedChris++; return; }
+
+    let touchedThisRow = false;
+    [['Event Date', eventDateCol], ['Date Booked', dateBookedCol]].forEach(([field, col]) => {
+      const original = r[field];
+      if (!isDate_(original)) return;
+      const corrected = reinterpretEasternDigitsAsUtc_(original);
+      touchedThisRow = true;
+      Logger.log(
+        'Row %s (%s) — %s: %s -> %s',
+        r._row, fullName_(r), field,
+        Utilities.formatDate(original, 'America/New_York', 'MMM d, yyyy h:mm a'),
+        Utilities.formatDate(corrected, 'America/New_York', 'MMM d, yyyy h:mm a')
+      );
+      if (!dryRun) sheet.getRange(r._row, col).setValue(corrected);
+    });
+
+    if (touchedThisRow) correctedRows++; else skippedNoDate++;
+  });
+
+  Logger.log(
+    '%s — %s row(s) corrected, %s Chris row(s) skipped, %s row(s) had no date to fix.',
+    dryRun ? 'DRY RUN (nothing written)' : 'APPLIED', correctedRows, skippedChris, skippedNoDate
+  );
+}
+
+// Run this first. Logs every change it WOULD make without writing anything.
+function previewCalendlyTimezoneFix() {
+  runCalendlyTimezoneFix_(true);
+}
+
+// Run this only after reviewing previewCalendlyTimezoneFix()'s log. Writes
+// the corrected dates to the sheet. Refuses to run a second time so an
+// accidental re-run can't shift already-corrected rows again — clear the
+// 'calendlyTzFixAppliedAt' script property yourself if you really need to.
+function applyCalendlyTimezoneFix() {
+  const props = PropertiesService.getScriptProperties();
+  const already = props.getProperty('calendlyTzFixAppliedAt');
+  if (already) {
+    throw new Error('Already applied on ' + already + '. Delete the "calendlyTzFixAppliedAt" script property if you really need to run this again.');
+  }
+  runCalendlyTimezoneFix_(false);
+  props.setProperty('calendlyTzFixAppliedAt', new Date().toISOString());
 }
 
 function columnToLetter_(column) {
@@ -502,6 +702,164 @@ function getRevenueStats() {
     categories: categories,
     allMonths: allMonths,
     generatedAt: formatDate_(new Date(), 'EEE, MMM d, yyyy h:mm a'),
+  };
+}
+
+function normalizePhone_(val) {
+  const digits = (val || '').toString().replace(/\D/g, '');
+  return digits.length >= 7 ? digits.slice(-10) : '';
+}
+
+// value vs baseline -> 'great' (>=110%), 'okay' (80-110%), 'low' (<80%), or
+// 'neutral' when there's not enough data yet to judge (no baseline, or no value).
+function tierFor_(value, baseline) {
+  if (value === null || value === undefined || baseline === null || baseline === undefined) return 'neutral';
+  if (baseline === 0) return value > 0 ? 'great' : 'neutral';
+  const ratio = value / baseline;
+  if (ratio >= 1.10) return 'great';
+  if (ratio >= 0.80) return 'okay';
+  return 'low';
+}
+
+// Studio Health — this month's inquiries, rentals, unique customers, lead-conversion
+// rate, and repeat-customer rate, each measured against a baseline (this year's
+// monthly average, or last month) and scored great/okay/low against it.
+function getStudioHealth() {
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const inquiries = readRows_(CONFIG.INQUIRY_TAB);
+
+  const activeBookings = bookings.filter(b => {
+    const status = (b['Booking Status'] || '').toString().toLowerCase();
+    return status.indexOf('cancel') === -1;
+  });
+
+  // All-time regular-customer detection (mirrors getDashboardData's isRegular logic).
+  const emailCounts = {};
+  bookings.forEach(b => {
+    const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+    if (!email) return;
+    emailCounts[email] = (emailCounts[email] || 0) + 1;
+  });
+
+  // All-time contact sets, so an inquiry can be matched to a booking it became
+  // even if that booking happened in a different month than the inquiry.
+  const bookedEmails = new Set();
+  const bookedPhones = new Set();
+  activeBookings.forEach(b => {
+    const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+    if (email) bookedEmails.add(email);
+    const phone = normalizePhone_(b['Phone']);
+    if (phone) bookedPhones.add(phone);
+  });
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth();
+
+  function countsForYear_(rows, dateField, year) {
+    const counts = new Array(12).fill(0);
+    rows.forEach(r => {
+      const d = parseDateValue_(r[dateField]);
+      if (d && d.getFullYear() === year) counts[d.getMonth()]++;
+    });
+    return counts;
+  }
+
+  const inquiryCounts = countsForYear_(inquiries, 'Submitted At', currentYear);
+  const rentalCounts = countsForYear_(activeBookings, 'Event Date', currentYear);
+
+  const repeatRateByMonth = new Array(12).fill(null);
+  const conversionRateByMonth = new Array(12).fill(null);
+
+  for (let m = 0; m < 12; m++) {
+    const monthBookings = activeBookings.filter(b => {
+      const d = parseEventDateTime_(b);
+      return d && d.getFullYear() === currentYear && d.getMonth() === m;
+    });
+    if (monthBookings.length) {
+      const repeatCount = monthBookings.filter(b => {
+        const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+        return email && emailCounts[email] > 1;
+      }).length;
+      repeatRateByMonth[m] = (repeatCount / monthBookings.length) * 100;
+    }
+
+    const monthInquiries = inquiries.filter(i => {
+      const d = parseDateValue_(i['Submitted At']);
+      return d && d.getFullYear() === currentYear && d.getMonth() === m;
+    });
+    if (monthInquiries.length) {
+      const convertedCount = monthInquiries.filter(i => {
+        const email = (i['data__Email'] || '').toString().trim().toLowerCase();
+        const phone = normalizePhone_(i['data__Phone Number']);
+        return (email && bookedEmails.has(email)) || (phone && bookedPhones.has(phone));
+      }).length;
+      conversionRateByMonth[m] = (convertedCount / monthInquiries.length) * 100;
+    }
+  }
+
+  function uniqueCustomersForMonth_(year, month) {
+    const keys = new Set();
+    activeBookings.forEach(b => {
+      const d = parseEventDateTime_(b);
+      if (!d || d.getFullYear() !== year || d.getMonth() !== month) return;
+      const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+      keys.add(email || ('name:' + fullName_(b).toLowerCase()));
+    });
+    return keys.size;
+  }
+
+  // Baseline is the average of this year's *completed* months only — the
+  // in-progress current month never gets compared against itself.
+  function avgOfCompletedMonths_(counts) {
+    if (currentMonthIdx === 0) return null;
+    const completed = counts.slice(0, currentMonthIdx);
+    return completed.reduce((a, v) => a + v, 0) / completed.length;
+  }
+
+  function avgOfCompletedRates_(rates) {
+    const completed = rates.slice(0, currentMonthIdx).filter(v => v !== null);
+    return completed.length ? completed.reduce((a, v) => a + v, 0) / completed.length : null;
+  }
+
+  const inquiriesThisMonth = inquiryCounts[currentMonthIdx];
+  const rentalsThisMonth = rentalCounts[currentMonthIdx];
+  const inquiriesAvg = avgOfCompletedMonths_(inquiryCounts);
+  const rentalsAvg = avgOfCompletedMonths_(rentalCounts);
+
+  const uniqueThisMonth = uniqueCustomersForMonth_(currentYear, currentMonthIdx);
+  let prevYear = currentYear, prevMonth = currentMonthIdx - 1;
+  if (prevMonth < 0) { prevMonth = 11; prevYear = currentYear - 1; }
+  const uniquePrevMonth = uniqueCustomersForMonth_(prevYear, prevMonth);
+
+  const conversionThisMonth = conversionRateByMonth[currentMonthIdx];
+  const conversionAvg = avgOfCompletedRates_(conversionRateByMonth);
+
+  const repeatThisMonth = repeatRateByMonth[currentMonthIdx];
+  const repeatAvg = avgOfCompletedRates_(repeatRateByMonth);
+
+  return {
+    monthLabel: MONTH_NAMES_[currentMonthIdx],
+    inquiries: {
+      label: 'Inquiries This Month', value: inquiriesThisMonth, baseline: inquiriesAvg,
+      baselineLabel: 'Monthly Avg', tier: tierFor_(inquiriesThisMonth, inquiriesAvg),
+    },
+    rentals: {
+      label: 'Rentals This Month', value: rentalsThisMonth, baseline: rentalsAvg,
+      baselineLabel: 'Monthly Avg', tier: tierFor_(rentalsThisMonth, rentalsAvg),
+    },
+    uniqueCustomers: {
+      label: 'Unique Customers', value: uniqueThisMonth, baseline: uniquePrevMonth,
+      baselineLabel: 'Last Month', tier: tierFor_(uniqueThisMonth, uniquePrevMonth),
+    },
+    conversionRate: {
+      label: 'Inquiry -> Booking Rate', value: conversionThisMonth, baseline: conversionAvg,
+      baselineLabel: 'Monthly Avg', tier: tierFor_(conversionThisMonth, conversionAvg), isPercent: true,
+    },
+    repeatCustomerRate: {
+      label: 'Repeat Customer Rate', value: repeatThisMonth, baseline: repeatAvg,
+      baselineLabel: 'Monthly Avg', tier: tierFor_(repeatThisMonth, repeatAvg), isPercent: true,
+    },
   };
 }
 
