@@ -3,6 +3,11 @@ const CONFIG = {
   BOOKINGS_TAB: 'bookings',
   INQUIRY_TAB: 'inquiry',
   HISTORICAL_TAB: 'historical',
+  // Drive folder that all check-in photo subfolders get created inside.
+  // Create/designate this folder in Drive (owned by whoever deploys this
+  // script), copy its ID out of the folder's URL, and paste it here — see
+  // manual.html#checkin for the full setup checklist.
+  CHECKIN_PARENT_FOLDER_ID: '1h1CEAKVJEdzIKUg9_hviLD6EzPGN3S1U',
 };
 
 // JSON API. Front end lives as static HTML/CSS/JS hosted on Ionos and calls this
@@ -44,6 +49,12 @@ function doPost(e) {
     }
     if (body.action === 'applyChrisPayment') {
       return jsonOutput_({ ok: true, data: applyChrisSessionPayment() });
+    }
+    if (body.action === 'uploadCheckinPhoto') {
+      return jsonOutput_({ ok: true, data: uploadCheckinPhoto(body.row, body.photoType, body.mimeType, body.dataBase64) });
+    }
+    if (body.action === 'markCheckinComplete') {
+      return jsonOutput_({ ok: true, data: markCheckinComplete(body.row) });
     }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + body.action });
   } catch (err) {
@@ -131,6 +142,19 @@ function getDashboardData() {
     emailCounts[email] = (emailCounts[email] || 0) + 1;
   });
 
+  // Regulars don't need ID/card re-collected every visit — surface the most
+  // recent completed check-in for this email across ALL their bookings (not
+  // just this one) so staff can see it's already on file and skip re-shooting it.
+  const lastCheckinByEmail = {};
+  bookings.forEach(b => {
+    const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+    const completedDate = parseDateValue_(b[CHECKIN_COMPLETED_COL]);
+    if (!email || !completedDate) return;
+    if (!lastCheckinByEmail[email] || completedDate.getTime() > lastCheckinByEmail[email].getTime()) {
+      lastCheckinByEmail[email] = completedDate;
+    }
+  });
+
   const activeBookings = bookings.filter(b => {
     const status = (b['Booking Status'] || '').toString().toLowerCase();
     return status.indexOf('cancel') === -1;
@@ -166,6 +190,9 @@ function getDashboardData() {
       finalPayment: b['Total Paid'] || '',
       isRegular: email ? emailCounts[email] > 1 : false,
       bookingsCount: email ? emailCounts[email] : 1,
+      lastCheckinDate: email && lastCheckinByEmail[email]
+        ? formatDate_(lastCheckinByEmail[email], 'MMM d, yyyy')
+        : '',
     };
   });
 
@@ -256,6 +283,121 @@ function updateInquiry(rowNumber, note, close) {
   }
 
   return getDashboardData();
+}
+
+// Header that stores the Drive folder ID created for a booking's check-in
+// photos. Must exist as a header on the bookings tab — see
+// setupCheckinFolderColumn(). Storing the ID directly (rather than matching
+// on folder name) is what makes re-running check-in for the same booking
+// reuse the same folder instead of risking a name collision with another
+// booking that shares a renter name and date.
+const CHECKIN_FOLDER_COL = 'Checkin Folder ID';
+
+// Stamped once all four check-in photos finish uploading for a booking. Used
+// to surface "ID/card already on file as of <date>" for regulars — see
+// lastCheckinByEmail in getDashboardData(). Must exist as a header on the
+// bookings tab — see setupCheckinCompletedColumn().
+const CHECKIN_COMPLETED_COL = 'Checkin Completed Date';
+
+const CHECKIN_PHOTO_FILENAMES = {
+  idFront: 'id-front.jpg',
+  idBack: 'id-back.jpg',
+  cardFront: 'card-front.jpg',
+  cardBack: 'card-back.jpg',
+};
+
+// Returns the Drive folder for this booking's check-in photos, creating it
+// (and recording its ID back on the row) the first time. Safe to call
+// repeatedly for the same row — later calls just reuse the stored ID.
+function getOrCreateCheckinFolder_(rowNumber) {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const folderCol = headers.indexOf(CHECKIN_FOLDER_COL) + 1;
+  if (folderCol === 0) throw new Error(CHECKIN_FOLDER_COL + ' column not found — run setupCheckinFolderColumn() once from the Apps Script editor.');
+
+  const existingId = sheet.getRange(rowNumber, folderCol).getValue();
+  if (existingId) {
+    try {
+      return DriveApp.getFolderById(existingId);
+    } catch (err) {
+      // Folder was deleted/moved out of reach since we recorded it — fall
+      // through and create a fresh one rather than failing check-in.
+    }
+  }
+
+  const rowValues = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
+  const rowObj = {};
+  headers.forEach((h, i) => { if (h) rowObj[h] = rowValues[i]; });
+
+  const name = fullName_(rowObj);
+  const eventDateTime = parseEventDateTime_(rowObj);
+  const dateLabel = eventDateTime
+    ? Utilities.formatDate(eventDateTime, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : 'no-date';
+  const folderName = dateLabel + ' - ' + name;
+
+  const parent = DriveApp.getFolderById(CONFIG.CHECKIN_PARENT_FOLDER_ID);
+  const folder = parent.createFolder(folderName);
+  sheet.getRange(rowNumber, folderCol).setValue(folder.getId());
+  return folder;
+}
+
+// Saves one check-in photo into the booking's Drive folder. Overwrites
+// (trashes) any prior file of the same name first, so retaking a photo
+// during the same check-in — or re-running check-in later — doesn't leave
+// duplicate files behind.
+function uploadCheckinPhoto(rowNumber, photoType, mimeType, dataBase64) {
+  const filename = CHECKIN_PHOTO_FILENAMES[photoType];
+  if (!filename) throw new Error('Unknown photo type: ' + photoType);
+
+  const folder = getOrCreateCheckinFolder_(rowNumber);
+
+  const existing = folder.getFilesByName(filename);
+  while (existing.hasNext()) existing.next().setTrashed(true);
+
+  const blob = Utilities.newBlob(Utilities.base64Decode(dataBase64), mimeType || 'image/jpeg', filename);
+  const file = folder.createFile(blob);
+
+  return { fileName: filename, fileId: file.getId(), folderId: folder.getId() };
+}
+
+// One-time setup utility — run manually from the Apps Script editor (Run >
+// setupCheckinFolderColumn). Adds the "Checkin Folder ID" header to the
+// bookings tab if it isn't already there. Safe to re-run — a no-op once the
+// column exists.
+function setupCheckinFolderColumn() {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf(CHECKIN_FOLDER_COL) !== -1) return;
+  sheet.getRange(1, lastCol + 1).setValue(CHECKIN_FOLDER_COL);
+}
+
+// One-time setup utility — run manually from the Apps Script editor (Run >
+// setupCheckinCompletedColumn). Adds the "Checkin Completed Date" header to
+// the bookings tab if it isn't already there. Safe to re-run — a no-op once
+// the column exists.
+function setupCheckinCompletedColumn() {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf(CHECKIN_COMPLETED_COL) !== -1) return;
+  sheet.getRange(1, lastCol + 1).setValue(CHECKIN_COMPLETED_COL);
+}
+
+// Stamps the completed-check-in date on this booking's row once all four
+// photos are confirmed uploaded. Best-effort from the frontend's point of
+// view — the photos themselves are already safely in Drive by the time this
+// is called, so a failure here only means the "last on file" convenience
+// note won't update, not that check-in itself failed.
+function markCheckinComplete(rowNumber) {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const col = headers.indexOf(CHECKIN_COMPLETED_COL) + 1;
+  if (col === 0) throw new Error(CHECKIN_COMPLETED_COL + ' column not found — run setupCheckinCompletedColumn() once from the Apps Script editor.');
+  sheet.getRange(rowNumber, col).setValue(new Date());
+  return { row: rowNumber };
 }
 
 // Chris's active (non-cancelled) session rows, in raw sheet-row order — the

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check-in</title>
+<link rel="icon" href="icon.jpg">
+<link rel="apple-touch-icon" href="icon.jpg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Check-in">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="checkin-app">
+    <header>
+      <img id="brandLogo" src="logo.png" alt="Central Studio SM" class="brand-logo">
+      <h1>Check-in</h1>
+    </header>
+
+    <div id="checkinMissingRow" class="error-box" style="display:none;">
+      This check-in link is missing rental info. Open it from the Check-in button on the dashboard instead of typing the URL directly.
+    </div>
+
+    <div id="checkinBody" style="display:none;">
+      <div class="checkin-summary">
+        <div class="checkin-summary-name" id="checkinName"></div>
+        <div class="checkin-summary-date" id="checkinDate"></div>
+      </div>
+
+      <div id="checkinLastNote" class="checkin-last-note" style="display:none;"></div>
+
+      <div id="checkinGrid" class="checkin-grid"></div>
+
+      <div id="checkinDoneBanner" class="checkin-done-banner" style="display:none;">
+        All four photos are uploaded. You're done — you can close this tab.
+      </div>
+    </div>
+
+    <footer id="pageFooter">
+      <a id="backToDashboard" class="refresh-btn" href="index.html">Back to Dashboard</a>
+    </footer>
+  </div>
+
+  <script src="checkin.js"></script>
+</body>
+</html>

@@ -205,6 +205,20 @@ function buildBookingCard(b, isVettedList) {
     '<div class="card-actions"></div>';
 
   var actions = detail.querySelector('.card-actions');
+
+  var checkinBtn = document.createElement('a');
+  checkinBtn.className = 'action-btn undo';
+  checkinBtn.textContent = 'Check-in';
+  checkinBtn.target = '_blank';
+  checkinBtn.rel = 'noopener';
+  checkinBtn.href = 'checkin.html' +
+    '?row=' + encodeURIComponent(b.row) +
+    '&name=' + encodeURIComponent(b.name) +
+    '&date=' + encodeURIComponent(b.eventDate) +
+    '&time=' + encodeURIComponent(b.eventTime) +
+    '&lastCheckin=' + encodeURIComponent(b.lastCheckinDate || '');
+  actions.appendChild(checkinBtn);
+
   if (isVettedList) {
     var undoBtn = document.createElement('button');
     undoBtn.className = 'action-btn undo';
