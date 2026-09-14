@@ -12,6 +12,7 @@ var TILES = [
 var tileState = {};
 var rentalRow = null;
 var checkinCompleteNotified = false;
+var extraIdCount = 0;
 
 function escapeHtml(str) {
   return String(str == null ? '' : str)
@@ -57,6 +58,28 @@ function init() {
     grid.appendChild(buildTile(tile));
     renderTile(tile.key);
   });
+
+  document.getElementById('addIdBtn').addEventListener('click', addAnotherId);
+}
+
+// Group rentals / multiple renters on one booking sometimes need more than
+// one ID captured. Each press adds one more front/back pair, numbered from
+// #2 (the original pair is the implicit #1). Keys match the idFront_N /
+// idBack_N pattern uploadCheckinPhoto's filename resolver expects.
+function addAnotherId() {
+  extraIdCount++;
+  var n = extraIdCount + 1;
+  var grid = document.getElementById('checkinGrid');
+  [
+    { key: 'idFront_' + n, label: 'Photo ID #' + n + ' — Front' },
+    { key: 'idBack_' + n, label: 'Photo ID #' + n + ' — Back' }
+  ].forEach(function (tile) {
+    TILES.push(tile);
+    tileState[tile.key] = { status: 'empty', blob: null, previewUrl: null, errorMsg: '' };
+    grid.appendChild(buildTile(tile));
+    renderTile(tile.key);
+  });
+  updateDoneBanner();
 }
 
 function buildTile(tile) {

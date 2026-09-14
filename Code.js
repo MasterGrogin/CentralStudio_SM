@@ -306,6 +306,18 @@ const CHECKIN_PHOTO_FILENAMES = {
   cardBack: 'card-back.jpg',
 };
 
+// Group rentals can capture more than one ID — the check-in page's "Add
+// Another ID" button sends additional photoTypes as idFront_2/idBack_2,
+// idFront_3/idBack_3, etc. Falls back to the fixed map above for the
+// original (unnumbered) four tiles.
+function checkinPhotoFilename_(photoType) {
+  if (CHECKIN_PHOTO_FILENAMES[photoType]) return CHECKIN_PHOTO_FILENAMES[photoType];
+  const match = /^(idFront|idBack)_(\d+)$/.exec(photoType);
+  if (!match) return null;
+  const side = match[1] === 'idFront' ? 'front' : 'back';
+  return 'id-' + side + '-' + match[2] + '.jpg';
+}
+
 // Returns the Drive folder for this booking's check-in photos, creating it
 // (and recording its ID back on the row) the first time. Safe to call
 // repeatedly for the same row — later calls just reuse the stored ID.
@@ -348,7 +360,7 @@ function getOrCreateCheckinFolder_(rowNumber) {
 // during the same check-in — or re-running check-in later — doesn't leave
 // duplicate files behind.
 function uploadCheckinPhoto(rowNumber, photoType, mimeType, dataBase64) {
-  const filename = CHECKIN_PHOTO_FILENAMES[photoType];
+  const filename = checkinPhotoFilename_(photoType);
   if (!filename) throw new Error('Unknown photo type: ' + photoType);
 
   const folder = getOrCreateCheckinFolder_(rowNumber);

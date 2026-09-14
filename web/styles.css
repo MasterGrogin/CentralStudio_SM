@@ -397,6 +397,12 @@ h2 {
   cursor: pointer;
 }
 
+.checkin-add-id-btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+}
+
 .checkin-done-banner {
   margin-top: 20px;
   background: var(--card-bg);
