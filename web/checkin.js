@@ -11,8 +11,13 @@ var TILES = [
 // tileState only ever holds what's needed to render + retry, never gets logged.
 var tileState = {};
 var rentalRow = null;
-var checkinCompleteNotified = false;
 var extraIdCount = 0;
+
+var WAIVER_REQUIRED_FIELDS = ['waiverName', 'waiverAddress', 'waiverCity', 'waiverState', 'waiverZip', 'waiverPhone', 'waiverEmail'];
+var agreementSigPad = null;
+var waiverSigPad = null;
+var waiverSubmitting = false;
+var waiverSubmitted = false;
 
 function escapeHtml(str) {
   return String(str == null ? '' : str)
@@ -46,6 +51,11 @@ function init() {
   document.getElementById('checkinDate').textContent =
     params.date + (params.time ? ' · ' + params.time : '');
 
+  if (params.name) {
+    var nameInput = document.getElementById('waiverName');
+    if (nameInput) nameInput.value = params.name;
+  }
+
   if (params.lastCheckin) {
     var lastCheckinNote = document.getElementById('checkinLastNote');
     lastCheckinNote.textContent = 'ID/card last on file: ' + params.lastCheckin + ' — may not need to be redone today.';
@@ -60,6 +70,9 @@ function init() {
   });
 
   document.getElementById('addIdBtn').addEventListener('click', addAnotherId);
+
+  initWaiver();
+  updateSubmitState();
 }
 
 // Group rentals / multiple renters on one booking sometimes need more than
@@ -79,7 +92,7 @@ function addAnotherId() {
     grid.appendChild(buildTile(tile));
     renderTile(tile.key);
   });
-  updateDoneBanner();
+  updateSubmitState();
 }
 
 function buildTile(tile) {
@@ -182,7 +195,7 @@ function resetTile(key) {
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   tileState[key] = { status: 'empty', blob: null, previewUrl: null, errorMsg: '' };
   renderTile(key);
-  updateDoneBanner();
+  updateSubmitState();
 }
 
 // Downscales/recompresses on-device before upload — phone camera photos can
@@ -274,35 +287,214 @@ function uploadTile(key) {
         s.errorMsg = res.error || 'Upload failed';
       }
       renderTile(key);
-      updateDoneBanner();
+      updateSubmitState();
     }).catch(function (err) {
       var s = tileState[key];
       s.status = 'error';
       s.errorMsg = err.message || 'Network error';
       renderTile(key);
-      updateDoneBanner();
+      updateSubmitState();
     });
 }
 
-function updateDoneBanner() {
-  var allDone = TILES.every(function (t) { return tileState[t.key].status === 'success'; });
-  document.getElementById('checkinDoneBanner').style.display = allDone ? '' : 'none';
-  if (allDone && !checkinCompleteNotified) {
-    checkinCompleteNotified = true;
-    notifyCheckinComplete_();
-  }
+function allPhotosUploaded_() {
+  return TILES.every(function (t) { return tileState[t.key].status === 'success'; });
 }
 
-// Records "when we last had this renter's ID/card on file" for next time.
-// Best-effort: the photos are already safely uploaded by the time this runs,
-// so a failure here doesn't affect check-in itself — it just means the
-// "last on file" note won't be up to date on their next visit.
-function notifyCheckinComplete_() {
+function waiverFieldsValid_() {
+  return WAIVER_REQUIRED_FIELDS.every(function (id) {
+    var el = document.getElementById(id);
+    return el && el.value.trim() !== '';
+  });
+}
+
+// Gates the Complete Check-In button on every requirement at once: every
+// photo tile uploaded, every required waiver field filled in, and ink on
+// both signature pads. Safe to call liberally — it's just a disabled-state
+// check.
+function updateSubmitState() {
+  var btn = document.getElementById('completeCheckinBtn');
+  if (!btn || waiverSubmitted) return;
+  btn.disabled = !(allPhotosUploaded_() && waiverFieldsValid_() &&
+    agreementSigPad.hasInk() && waiverSigPad.hasInk());
+}
+
+// One agreement, two separate signature blocks (Rental Agreement and Waiver
+// of Liability, matching the original two-signature paper form) — this
+// builds one canvas-based pad and returns handles to it rather than
+// duplicating the drawing/resize/clear logic per canvas.
+function createSigPad_(canvasId, placeholderId, clearBtnId) {
+  var canvas = document.getElementById(canvasId);
+  var placeholder = document.getElementById(placeholderId);
+  var ctx = null;
+  var hasInk = false;
+  var drawing = false;
+
+  function resize() {
+    var ratio = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    var hadInk = hasInk;
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1f2a33';
+    // Resizing (e.g. an orientation change) wipes canvas pixels — best
+    // effort, matches how most signature pads behave. Flag it so the submit
+    // button doesn't stay enabled on a signature that's no longer there.
+    if (hadInk) {
+      hasInk = false;
+      if (placeholder) placeholder.style.display = '';
+      updateSubmitState();
+    }
+  }
+
+  function pointFromEvent(e) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    // Pointer capture keeps this element getting move/up events for this
+    // pointer even if it strays outside the canvas mid-stroke — a mouse
+    // drag is far less precise than a finger and routinely dips a pixel or
+    // two out of a canvas this short, which would otherwise cut the
+    // stroke off right there.
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    var p = pointFromEvent(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  }
+  function moveDraw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    var p = pointFromEvent(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    if (!hasInk) {
+      hasInk = true;
+      if (placeholder) placeholder.style.display = 'none';
+      updateSubmitState();
+    }
+  }
+  function endDraw() { drawing = false; }
+
+  resize();
+  window.addEventListener('resize', resize);
+  // Pointer Events cover mouse, touch and pen through one API instead of
+  // separate mouse/touch handlers.
+  canvas.addEventListener('pointerdown', startDraw);
+  canvas.addEventListener('pointermove', moveDraw);
+  canvas.addEventListener('pointerup', endDraw);
+  canvas.addEventListener('pointercancel', endDraw);
+
+  document.getElementById(clearBtnId).addEventListener('click', function () {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    hasInk = false;
+    if (placeholder) placeholder.style.display = '';
+    updateSubmitState();
+  });
+
+  return {
+    hasInk: function () { return hasInk; },
+    toBase64: function () { return canvas.toDataURL('image/png').split(',')[1]; }
+  };
+}
+
+function initWaiver() {
+  agreementSigPad = createSigPad_('agreementSigCanvas', 'agreementSigPlaceholder', 'agreementSigClear');
+  waiverSigPad = createSigPad_('waiverSigCanvas', 'waiverSigPlaceholder', 'waiverSigClear');
+
+  WAIVER_REQUIRED_FIELDS.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateSubmitState);
+  });
+
+  document.getElementById('completeCheckinBtn').addEventListener('click', submitWaiver);
+}
+
+function submitWaiver() {
+  if (waiverSubmitting || waiverSubmitted) return;
+  var errorBox = document.getElementById('checkinWaiverError');
+  errorBox.style.display = 'none';
+
+  if (!allPhotosUploaded_()) {
+    errorBox.textContent = 'Upload all ID and credit card photos before completing check-in.';
+    errorBox.style.display = '';
+    return;
+  }
+  if (!waiverFieldsValid_()) {
+    errorBox.textContent = 'Please fill in all required fields.';
+    errorBox.style.display = '';
+    return;
+  }
+  if (!agreementSigPad.hasInk()) {
+    errorBox.textContent = 'Please sign the Rental Agreement signature box.';
+    errorBox.style.display = '';
+    return;
+  }
+  if (!waiverSigPad.hasInk()) {
+    errorBox.textContent = 'Please sign the Waiver of Liability signature box.';
+    errorBox.style.display = '';
+    return;
+  }
+
+  waiverSubmitting = true;
+  var btn = document.getElementById('completeCheckinBtn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  var payload = {
+    action: 'submitCheckinWaiver',
+    row: parseInt(rentalRow, 10),
+    name: document.getElementById('waiverName').value.trim(),
+    company: document.getElementById('waiverCompany').value.trim(),
+    address: document.getElementById('waiverAddress').value.trim(),
+    city: document.getElementById('waiverCity').value.trim(),
+    state: document.getElementById('waiverState').value.trim(),
+    zip: document.getElementById('waiverZip').value.trim(),
+    phone: document.getElementById('waiverPhone').value.trim(),
+    email: document.getElementById('waiverEmail').value.trim(),
+    agreementSignatureBase64: agreementSigPad.toBase64(),
+    waiverSignatureBase64: waiverSigPad.toBase64()
+  };
+
   fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'markCheckinComplete', row: parseInt(rentalRow, 10) })
-  }).catch(function () {});
+    body: JSON.stringify(payload)
+  }).then(function (res) { return res.json(); })
+    .then(function (res) {
+      waiverSubmitting = false;
+      if (res.ok) {
+        waiverSubmitted = true;
+        btn.textContent = 'Check-In Complete';
+        lockCheckinForm_();
+        document.getElementById('checkinDoneBanner').style.display = '';
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Complete Check-In';
+        errorBox.textContent = res.error || 'Submission failed. Please try again.';
+        errorBox.style.display = '';
+      }
+    }).catch(function (err) {
+      waiverSubmitting = false;
+      btn.disabled = false;
+      btn.textContent = 'Complete Check-In';
+      errorBox.textContent = err.message || 'Network error. Please try again.';
+      errorBox.style.display = '';
+    });
+}
+
+function lockCheckinForm_() {
+  var section = document.getElementById('checkinWaiverSection');
+  section.querySelectorAll('input, textarea, button').forEach(function (el) {
+    el.disabled = true;
+  });
 }
 
 init();

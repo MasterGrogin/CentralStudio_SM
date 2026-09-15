@@ -8,7 +8,35 @@ const CONFIG = {
   // script), copy its ID out of the folder's URL, and paste it here — see
   // manual.html#checkin for the full setup checklist.
   CHECKIN_PARENT_FOLDER_ID: '1h1CEAKVJEdzIKUg9_hviLD6EzPGN3S1U',
+  // Where the "customer finished uploading ID/card photos" notification goes.
+  CHECKIN_NOTIFY_EMAIL: 'info@centralstudioalbany.com',
 };
+
+// One-time manual step: in the Apps Script editor, select this function in
+// the function dropdown and click Run, then approve the permissions prompt
+// (Review permissions -> your account -> Advanced -> Go to project (unsafe)
+// -> Allow). The waiver PDF feature calls DocumentApp, a scope this project
+// didn't need before, and the deploying account has to explicitly grant it
+// once before the live web app can use it for anyone (staff or customers).
+// Safe to re-run — it just creates and immediately deletes a throwaway Doc.
+function authorizeDocumentAppScope() {
+  const doc = DocumentApp.create('auth-check-delete-me');
+  DriveApp.getFileById(doc.getId()).setTrashed(true);
+}
+
+// Same one-time-run-in-editor deal as authorizeDocumentAppScope above, but
+// for MailApp — apparently each newly-used Apps Script service needs its own
+// explicit run-and-approve, not just one project-wide grant. This one also
+// doubles as a real test: if CONFIG.CHECKIN_NOTIFY_EMAIL receives this,
+// that confirms both the scope is granted AND mail from this script isn't
+// getting caught by that inbox's spam filter.
+function authorizeMailScope() {
+  MailApp.sendEmail(
+    CONFIG.CHECKIN_NOTIFY_EMAIL,
+    'Central Studio — authorization test',
+    'This is a one-time test email confirming Apps Script can send mail from this project. Safe to ignore.'
+  );
+}
 
 // JSON API. Front end lives as static HTML/CSS/JS hosted on Ionos and calls this
 // via fetch(): GET ?action=getData for reads, POST with a JSON body for writes.
@@ -53,8 +81,8 @@ function doPost(e) {
     if (body.action === 'uploadCheckinPhoto') {
       return jsonOutput_({ ok: true, data: uploadCheckinPhoto(body.row, body.photoType, body.mimeType, body.dataBase64) });
     }
-    if (body.action === 'markCheckinComplete') {
-      return jsonOutput_({ ok: true, data: markCheckinComplete(body.row) });
+    if (body.action === 'submitCheckinWaiver') {
+      return jsonOutput_({ ok: true, data: submitCheckinWaiver(body) });
     }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + body.action });
   } catch (err) {
@@ -398,18 +426,285 @@ function setupCheckinCompletedColumn() {
   sheet.getRange(1, lastCol + 1).setValue(CHECKIN_COMPLETED_COL);
 }
 
-// Stamps the completed-check-in date on this booking's row once all four
-// photos are confirmed uploaded. Best-effort from the frontend's point of
-// view — the photos themselves are already safely in Drive by the time this
-// is called, so a failure here only means the "last on file" convenience
-// note won't update, not that check-in itself failed.
-function markCheckinComplete(rowNumber) {
+const WAIVER_REQUIRED_KEYS_ = ['name', 'address', 'city', 'state', 'zip', 'phone', 'email'];
+
+// Full text of "Central Studio Agreement and Waiver (v4)", broken into
+// sections for rendering into the signed PDF (see buildWaiverPdf_). The
+// customer-facing copy in web/checkin.html must be kept in sync by hand if
+// the underlying agreement (the .docx in the repo root) ever changes.
+const WAIVER_TEXT_AGREEMENT_ = [
+  {
+    heading: 'General Information',
+    paragraphs: [
+      'The Central Studio Rental Agreement and Waiver of Liability sets out the terms of the arrangement between you, the client, and Central Studio. This agreement sets out the amount of rental, any required deposit, the hours and length of studio rental use, and a waiver of liability clause.',
+      'Please read and sign these forms prior to studio usage, as they set out the rental terms and the studio\'s liability limitations in the event of accidents or injuries while the studio is being rented.'
+    ]
+  },
+  {
+    heading: 'Requirements',
+    paragraphs: [
+      'Renter must be 18 years of age or older.',
+      'No one under 18 years of age is allowed in the studio without a parent or legal guardian.',
+      'Renter must provide a valid US-issued photo ID at check-in.',
+      'Renter must provide a valid credit card for incidentals at check-in.'
+    ]
+  },
+  {
+    heading: 'Rental Agreement',
+    paragraphs: [
+      'Additional Services — Pre-Set Add-On for Photography Package: lights, background, and props can be preset to a certain setup for the client before arrival so they can arrive and be ready to shoot. Cost: $50.',
+      'Additional Services — Technical Assistance: have our staff on hand to assist with the shoot, manage equipment, set/adjust lights and camera settings, consult, etc. Cost: $30/hr.',
+      'Classes/Seminars/Workshops/Meet-ups/etc.: rentals for the purpose of group gathering for educational, training, teaching, or meet-up events will be subject to special rates. Please contact the studio with your request and we will build a package for you. The above rates are not valid for these types of rentals.',
+      'Deposit: a deposit is required to secure the dates and times requested and will be applied toward the final balance due. No dates will be held without a signed contract and deposit.',
+      'Length of Use: rental periods are pre-arranged with Central Studio. Time includes set-up and break-down. The studio must be cleaned and vacated by the end of the rental period. No prior drop-off and/or pick-up after completion of the shoot, of equipment, props, etc. unless negotiated at the time of the rental contract.',
+      'Cancellations: cancellations of confirmed bookings will result in the following charges — 72 hours or more prior to the rental date, the deposit can be applied toward a rescheduled date within 2 weeks; less than 72 hours, no refunds. Central Studio is not liable for acts out of its control that affect the shoot, such as equipment failures, power outages, weather, acts of God, or emergencies. In such cases, Central Studio will refund the client any unused rental hours.',
+      'Cyclorama Wall: the wall curve is not for climbing, running, or walking; any damage that occurs due to improper use is the renter\'s responsibility, with a repair fee of up to $1,000. Heavy markings or scratching of the white cyclorama floor and wall is subject to a $150 repainting fee. Even though all efforts are made to provide a clean cyclorama (cyc), the cyc wall comes as-is. Clients can request a fresh coat of paint up to 72 hours before rental at a cost of $150.',
+      'Damage / Cleanup: the client will leave the studio clean and neat, just as they found it — furniture put back, all lights, sound system, and equipment turned off. If not, a minimum $50 cleaning fee will be applied.',
+      'Renter also agrees that if any equipment, furniture, fixtures, etc. are mishandled, broken, ruined, or stolen during their rental period, they will be responsible for replacing the items (with equivalent or better) or paying for repair/replacement costs. Client agrees to notify Central Studio immediately of any malfunction, damage, or other issues with the equipment. The client is advised to bring a cell phone. Wi-Fi internet service is available during the rental period. All modeling lights and receivers are to be turned off when not in use.',
+      'Central Studio will dispose of trash collected in the supplied trash cans. The client must discard larger items, such as personal props and set pieces. All items brought to the premises by the client are to be removed by the client. Items left after 7 days will be assumed abandoned and may be discarded or kept by Central Studio, with no compensation due to the client, at the discretion of Central Studio.'
+    ]
+  },
+  {
+    heading: 'Studio Rules',
+    paragraphs: [
+      'No smoking whatsoever is allowed in the building.',
+      'No alcoholic beverages or non-prescription or illegal drugs allowed on the premises.',
+      'Music/voices are to be kept at reasonable levels and must not contain vulgar or offensive lyrics or words.',
+      'No one who is drunk or under the influence of illegal substances will be admitted.',
+      'No pets allowed without prior consent of Central Studio.',
+      'Maximum of eight people in the client\'s party — ask ahead if you will have a larger group.',
+      'This is a shared studio and we maintain a professional environment. The client shall be solely responsible for the conduct and welfare of all persons accompanying the client while on Central Studio\'s property. The client agrees that a Central Studio representative may, at Central Studio\'s discretion, be present at all times. If the representative observes or otherwise becomes aware of dangerous, pornographic, illegal, or negligent practices or activities, the representative reserves the right to stop the shoot and may require the client and client\'s party to leave immediately. The authorities will be alerted to any illegal activities witnessed by the Central Studio representative. In such case, no refund will be given for unused time. However, Central Studio and representatives assume no responsibility to act in such cases.',
+      'It is the renter\'s responsibility to notify and make aware any clients, models, or guests as to the presence of active security cameras.'
+    ]
+  },
+  {
+    heading: 'Miscellaneous',
+    paragraphs: [
+      'The client shall comply in all respects with all federal, state, county, city, or other local laws, regulations, and ordinances and all rules and regulations of any governmental authority, in connection with this agreement. This agreement incorporates the entire understanding and agreement between the client and Central Studio. Any modifications of this agreement must be in writing and signed by both parties. Any waiver of a breach or default hereunder shall not be deemed a waiver of a subsequent breach or default of either the same provision or any other provision of this agreement. The laws of the State of New York shall govern this agreement. Any signatures constitute a legal and binding agreement between the client and Central Studio.'
+    ]
+  }
+];
+
+const WAIVER_TEXT_LIABILITY_ = [
+  {
+    heading: 'Waiver of Liability',
+    paragraphs: [
+      'Central Studio rents its studio, including agreed-upon equipment, to its clients with the understanding that in no event shall Central Studio, its owners, agents, employees, affiliated independent contractors, management, bookers, or any other related personnel, the company and any of its subsidiaries be held liable for direct, indirect, incidental, or consequential damage due to the use of this building, facility, or equipment used by its clients.',
+      'You agree to release Central Studio, its owners, agents, employees, affiliated independent contractors, management, bookers, or any other related personnel, the company and any of its subsidiaries of any and all liability for any injuries, whether physical or mental, while in participation of, working and/or shooting in the studios, or any other activity in conjunction with this space, or situations that you encounter while renting the studio space.',
+      'You agree not to sue or file suit against Central Studio, its owners, agents, employees, affiliated independent contractors, management, bookers, or any other related personnel, the company and any of its subsidiaries for claims arising out of said participation and/or photo or video shoots while in participation of, working and/or shooting in the studios.',
+      'You waive Central Studio of any liabilities arising out of the use of the studio. Central Studio will not be held liable for any injuries, accidents, loss, or damage that occurs in the studio or on the building premises. It is your responsibility as the renter to carry liability insurance. We may require a copy of the renter\'s certificate of insurance with Central Studio added as an additional insured with respect to operations of the named insured and added as a loss payee "as their interests may appear." It must include a 30-day cancellation clause and proof of risk replacement cost.',
+      'Central Studio will only be liable for the amount of your paid fees if your shoot is delayed or cancelled as a result of a situation that arises in or on the building premises that is out of our control.',
+      'Central Studio expressly prohibits any illegal activity on its premises during the course of any rental.',
+      'You waive and hold harmless Central Studio from any incidents or accidents which may occur to or by persons either renting or associated with the renting of the studio facilities located at 1095 Central Avenue, Albany NY on the date(s) noted.',
+      'You agree to be solely responsible for the conduct and welfare of all persons accompanying you while on our premises.',
+      'You agree that someone representing Central Studio may be present in the building or studio at the times you are using it.',
+      'You agree that Central Studio has multiple active security cameras operating at all times which are visible by management.',
+      'You agree that Central Studio is a Smoke-Free facility and you and all persons accompanying you will refrain from the use of chemical cleaners or agents, or products which contain strong odors. Violation of this policy will result in an hourly charge of $25 per hour for each hour the studio cannot be used while airing out, as well as any clean-up costs.',
+      'You agree to the terms above and agree to make your representatives responsible for these terms.'
+    ]
+  }
+];
+
+// Called once a customer (or front desk, on their behalf) finishes the
+// digital Rental Agreement & Waiver of Liability at check-in — the frontend
+// only enables this once all photo tiles have uploaded and every required
+// field + the signature pad are filled in, but required fields are checked
+// again here since nothing stops a direct API call from skipping the UI.
+// Renders the full agreement with the client's info and signature into a
+// PDF, saves it alongside the ID/card photos, stamps the row, and emails
+// the studio.
+function submitCheckinWaiver(body) {
+  const rowNumber = body.row;
+  WAIVER_REQUIRED_KEYS_.forEach(function (key) {
+    if (!body[key] || !String(body[key]).trim()) throw new Error('Missing required field: ' + key);
+  });
+  if (!body.agreementSignatureBase64) throw new Error('Missing Rental Agreement signature');
+  if (!body.waiverSignatureBase64) throw new Error('Missing Waiver of Liability signature');
+
+  const folder = getOrCreateCheckinFolder_(rowNumber);
+
+  const agreementSigBlob = saveSignatureFile_(folder, 'rental-agreement-signature.png', body.agreementSignatureBase64);
+  const waiverSigBlob = saveSignatureFile_(folder, 'waiver-of-liability-signature.png', body.waiverSignatureBase64);
+
+  const pdfFile = buildWaiverPdf_(folder, body, agreementSigBlob, waiverSigBlob);
+
   const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   const col = headers.indexOf(CHECKIN_COMPLETED_COL) + 1;
   if (col === 0) throw new Error(CHECKIN_COMPLETED_COL + ' column not found — run setupCheckinCompletedColumn() once from the Apps Script editor.');
   sheet.getRange(rowNumber, col).setValue(new Date());
-  return { row: rowNumber };
+
+  notifyCheckinComplete_(rowNumber, sheet, headers, lastCol, pdfFile, folder);
+
+  return { row: rowNumber, waiverPdfUrl: pdfFile.getUrl() };
+}
+
+// Saves one signature PNG into the booking's check-in folder, overwriting
+// (trashing) any prior file of the same name — same retake-safe pattern as
+// uploadCheckinPhoto.
+function saveSignatureFile_(folder, filename, signatureBase64) {
+  const blob = Utilities.newBlob(Utilities.base64Decode(signatureBase64), 'image/png', filename);
+  const existing = folder.getFilesByName(filename);
+  while (existing.hasNext()) existing.next().setTrashed(true);
+  folder.createFile(blob);
+  return blob;
+}
+
+// Renders the agreement text + the client's typed info + their two
+// signatures (Rental Agreement, then Waiver of Liability — matching the
+// original two-signature paper form) into a PDF. Apps Script has no direct
+// text/HTML-to-PDF call, so this builds the content into a throwaway Google
+// Doc, exports that to PDF, then deletes the Doc — only the PDF (and the raw
+// signature PNGs saved by the caller) stick around in the check-in folder.
+function buildWaiverPdf_(folder, body, agreementSigBlob, waiverSigBlob) {
+  const doc = DocumentApp.create('waiver-temp-' + new Date().getTime());
+  const docBody = doc.getBody();
+  docBody.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
+
+  docBody.appendParagraph('Central Studio — Rental Agreement & Waiver of Liability')
+    .setHeading(DocumentApp.ParagraphHeading.HEADING1);
+
+  docBody.appendTable([
+    ['Name', body.name],
+    ['Company', body.company || '—'],
+    ['Address', body.address],
+    ['City / State / Zip', body.city + ', ' + body.state + ' ' + body.zip],
+    ['Phone', body.phone],
+    ['Email', body.email]
+  ]);
+
+  const signedStamp = 'Signed electronically on ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, yyyy h:mm a');
+
+  WAIVER_TEXT_AGREEMENT_.forEach(function (section) {
+    docBody.appendParagraph(section.heading).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    section.paragraphs.forEach(function (p) { docBody.appendParagraph(p); });
+  });
+  docBody.appendParagraph('Rental Agreement Signature').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  docBody.appendImage(agreementSigBlob).setWidth(240).setHeight(90);
+  docBody.appendParagraph(signedStamp);
+
+  WAIVER_TEXT_LIABILITY_.forEach(function (section) {
+    docBody.appendParagraph(section.heading).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    section.paragraphs.forEach(function (p) { docBody.appendParagraph(p); });
+  });
+  docBody.appendParagraph('Waiver of Liability Signature').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  docBody.appendImage(waiverSigBlob).setWidth(240).setHeight(90);
+  docBody.appendParagraph(signedStamp);
+
+  doc.saveAndClose();
+
+  const pdfBlob = DriveApp.getFileById(doc.getId()).getAs('application/pdf');
+  const existingPdf = folder.getFilesByName('signed-waiver.pdf');
+  while (existingPdf.hasNext()) existingPdf.next().setTrashed(true);
+  const pdfFile = folder.createFile(pdfBlob).setName('signed-waiver.pdf');
+
+  DriveApp.getFileById(doc.getId()).setTrashed(true);
+  return pdfFile;
+}
+
+// Preferred display order for the photos/signatures inlined into the
+// completion email — the primary four tiles in their natural front/back
+// order, then both signatures. Anything else found in the folder (extra IDs
+// from a group rental's "+ Add Another ID") is appended after, since there's
+// no fixed count for those.
+const NOTIFY_IMAGE_ORDER_ = [
+  [CHECKIN_PHOTO_FILENAMES.idFront, 'Photo ID — Front'],
+  [CHECKIN_PHOTO_FILENAMES.idBack, 'Photo ID — Back'],
+  [CHECKIN_PHOTO_FILENAMES.cardFront, 'Credit Card — Front'],
+  [CHECKIN_PHOTO_FILENAMES.cardBack, 'Credit Card — Back'],
+  ['rental-agreement-signature.png', 'Rental Agreement Signature'],
+  ['waiver-of-liability-signature.png', 'Waiver of Liability Signature']
+];
+
+// Best-effort email to the studio when a customer finishes their own
+// check-in (ID + credit card photos + signed waiver) from the link texted to
+// them. A failure here never fails check-in itself — the photos, signatures
+// and waiver PDF are already safely in Drive by the time this runs. Inlines
+// every photo/signature directly in the email body (so staff can eyeball
+// whether the customer submitted legible, correct images without opening
+// Drive) and attaches the signed waiver PDF.
+function notifyCheckinComplete_(rowNumber, sheet, headers, lastCol, pdfFile, folder) {
+  try {
+    const rowValues = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
+    const rowObj = {};
+    headers.forEach((h, i) => { if (h) rowObj[h] = rowValues[i]; });
+
+    const name = fullName_(rowObj);
+    const eventDateTime = parseEventDateTime_(rowObj);
+    const dateLabel = eventDateTime
+      ? Utilities.formatDate(eventDateTime, Session.getScriptTimeZone(), 'MMM d, yyyy')
+      : (rowObj['Event Date'] || 'no date on file');
+
+    const folderCol = headers.indexOf(CHECKIN_FOLDER_COL) + 1;
+    const folderId = folderCol ? sheet.getRange(rowNumber, folderCol).getValue() : '';
+    const folderUrl = folderId ? 'https://drive.google.com/drive/folders/' + folderId : '(no folder on file)';
+
+    const remainingFiles = {};
+    if (folder) {
+      const iter = folder.getFiles();
+      while (iter.hasNext()) {
+        const f = iter.next();
+        const mime = f.getMimeType();
+        if (mime === 'image/jpeg' || mime === 'image/png') remainingFiles[f.getName()] = f;
+      }
+    }
+
+    const ordered = [];
+    NOTIFY_IMAGE_ORDER_.forEach(function (pair) {
+      if (remainingFiles[pair[0]]) {
+        ordered.push({ file: remainingFiles[pair[0]], label: pair[1] });
+        delete remainingFiles[pair[0]];
+      }
+    });
+    Object.keys(remainingFiles).sort().forEach(function (fname) {
+      ordered.push({ file: remainingFiles[fname], label: fname.replace(/\.(jpg|jpeg|png)$/i, '').replace(/[-_]/g, ' ') });
+    });
+
+    const inlineImages = {};
+    let imagesHtml = '';
+    ordered.forEach(function (item, i) {
+      const cid = 'checkinImg' + i;
+      inlineImages[cid] = item.file.getBlob();
+      imagesHtml += '<div style="display:inline-block;margin:6px;text-align:center;vertical-align:top;">' +
+        '<img src="cid:' + cid + '" style="max-width:220px;max-height:220px;border:1px solid #ccc;border-radius:6px;display:block;">' +
+        '<div style="font-size:11px;color:#555;margin-top:4px;">' + item.label + '</div>' +
+        '</div>';
+    });
+
+    const linksHtml = '<a href="' + folderUrl + '">Open Drive folder</a>' +
+      (pdfFile ? ' &nbsp;|&nbsp; <a href="' + pdfFile.getUrl() + '">Signed waiver PDF</a>' : '');
+
+    MailApp.sendEmail({
+      to: CONFIG.CHECKIN_NOTIFY_EMAIL,
+      subject: 'Check-in complete: ' + name + ' (' + dateLabel + ')',
+      body: name + ' just finished check-in (ID/card photos + signed waiver) for their ' + dateLabel + ' booking.\n\n' +
+        'Photos & waiver folder: ' + folderUrl + '\n' +
+        (pdfFile ? 'Signed waiver PDF: ' + pdfFile.getUrl() : ''),
+      htmlBody: '<p>' + name + ' just finished check-in (ID/card photos + signed waiver) for their ' + dateLabel + ' booking.</p>' +
+        '<p>' + linksHtml + '</p>' +
+        '<div>' + imagesHtml + '</div>',
+      inlineImages: inlineImages,
+      attachments: pdfFile ? [pdfFile.getBlob()] : []
+    });
+  } catch (err) {
+    // Swallow from the caller's point of view (see comment above) — but
+    // surface it somewhere a non-technical person can actually find: a note
+    // on the row's "Checkin Completed Date" cell (small red triangle,
+    // visible on hover, right in the sheet) rather than only the Apps
+    // Script Executions log, which has proven awkward to dig through.
+    console.error('notifyCheckinComplete_ failed: ' + err.message + '\n' + err.stack);
+    try {
+      const col = headers.indexOf(CHECKIN_COMPLETED_COL) + 1;
+      if (col) {
+        sheet.getRange(rowNumber, col).setNote(
+          'Notification email failed at ' + new Date().toLocaleString() + ': ' + err.message
+        );
+      }
+    } catch (noteErr) {
+      // Nothing more we can do here.
+    }
+  }
 }
 
 // Chris's active (non-cancelled) session rows, in raw sheet-row order — the

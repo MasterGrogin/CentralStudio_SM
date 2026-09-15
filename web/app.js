@@ -10,6 +10,41 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// navigator.clipboard is only defined in secure (https) contexts and on
+// modern browsers — calling it when undefined throws immediately, before a
+// .catch ever runs. Falls back to the old execCommand('copy') trick, then to
+// a manual prompt so there's always something the user can do.
+function copyToClipboard_(text, btn, restoreLabel) {
+  function showCopied() {
+    btn.textContent = 'Copied!';
+    setTimeout(function () { btn.textContent = restoreLabel; }, 1500);
+  }
+  function legacyCopy() {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      if (legacyCopy()) showCopied(); else window.prompt('Copy this link:', text);
+    });
+    return;
+  }
+  if (legacyCopy()) showCopied(); else window.prompt('Copy this link:', text);
+}
+
 function phoneMarkup(phone) {
   if (!phone) return '';
   var display = String(phone);
@@ -206,18 +241,43 @@ function buildBookingCard(b, isVettedList) {
 
   var actions = detail.querySelector('.card-actions');
 
+  var checkinQuery = '?row=' + encodeURIComponent(b.row) +
+    '&name=' + encodeURIComponent(b.name) +
+    '&date=' + encodeURIComponent(b.eventDate) +
+    '&time=' + encodeURIComponent(b.eventTime) +
+    '&lastCheckin=' + encodeURIComponent(b.lastCheckinDate || '');
+  var checkinUrl = new URL('checkin.html' + checkinQuery, window.location.href).toString();
+
   var checkinBtn = document.createElement('a');
   checkinBtn.className = 'action-btn undo';
   checkinBtn.textContent = 'Check-in';
   checkinBtn.target = '_blank';
   checkinBtn.rel = 'noopener';
-  checkinBtn.href = 'checkin.html' +
-    '?row=' + encodeURIComponent(b.row) +
-    '&name=' + encodeURIComponent(b.name) +
-    '&date=' + encodeURIComponent(b.eventDate) +
-    '&time=' + encodeURIComponent(b.eventTime) +
-    '&lastCheckin=' + encodeURIComponent(b.lastCheckinDate || '');
+  checkinBtn.href = checkinUrl;
   actions.appendChild(checkinBtn);
+
+  // Lets front desk send the same check-in page straight to the customer's
+  // phone so they can upload their own ID/card photos before arriving,
+  // instead of someone at the desk doing it for them.
+  if (b.phone) {
+    var textDigits = String(b.phone).replace(/[^\d+]/g, '');
+    var textMsg = 'Please complete check-in for your ' + (b.eventDate || 'upcoming') + ' booking here: ' + checkinUrl;
+    var textLinkBtn = document.createElement('a');
+    textLinkBtn.className = 'action-btn undo';
+    textLinkBtn.textContent = 'Text Check-in Link';
+    textLinkBtn.href = 'sms:' + textDigits + '?&body=' + encodeURIComponent(textMsg);
+    actions.appendChild(textLinkBtn);
+  }
+
+  var copyLinkBtn = document.createElement('button');
+  copyLinkBtn.type = 'button';
+  copyLinkBtn.className = 'action-btn undo';
+  copyLinkBtn.textContent = 'Copy Check-in Link';
+  copyLinkBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    copyToClipboard_(checkinUrl, copyLinkBtn, 'Copy Check-in Link');
+  });
+  actions.appendChild(copyLinkBtn);
 
   if (isVettedList) {
     var undoBtn = document.createElement('button');
