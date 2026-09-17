@@ -56,12 +56,6 @@ function init() {
     if (nameInput) nameInput.value = params.name;
   }
 
-  if (params.lastCheckin) {
-    var lastCheckinNote = document.getElementById('checkinLastNote');
-    lastCheckinNote.textContent = 'ID/card last on file: ' + params.lastCheckin + ' — may not need to be redone today.';
-    lastCheckinNote.style.display = '';
-  }
-
   var grid = document.getElementById('checkinGrid');
   TILES.forEach(function (tile) {
     tileState[tile.key] = { status: 'empty', blob: null, previewUrl: null, errorMsg: '' };
@@ -73,6 +67,43 @@ function init() {
 
   initWaiver();
   updateSubmitState();
+  loadCheckinOnFile_();
+}
+
+// Looks up whether this customer already has a still-valid (<=6 months old)
+// ID/credit card photo on file from a prior visit — matched server-side by
+// email + name on the booking row itself, never by anything in the URL.
+// Runs after tiles are already rendered/usable so a slow or failed lookup
+// never blocks check-in: matching tiles just upgrade from "empty" to
+// "on file" in place, each still individually replaceable via its own
+// Update button.
+function loadCheckinOnFile_() {
+  return fetch(API_URL + '?action=getCheckinOnFile&row=' + encodeURIComponent(rentalRow))
+    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok || !res.data || !res.data.tiles) return;
+      var onFile = res.data;
+      var matchedAny = false;
+      TILES.forEach(function (tile) {
+        var match = onFile.tiles[tile.key];
+        var state = tileState[tile.key];
+        if (!match || !state || state.status !== 'empty') return;
+        matchedAny = true;
+        state.status = 'onfile';
+        state.onFileDate = onFile.dateLabel;
+        renderTile(tile.key);
+      });
+      if (matchedAny) {
+        var note = document.getElementById('checkinLastNote');
+        note.textContent = 'ID/credit card on file from ' + onFile.dateLabel +
+          ' — tap a photo below to update it, otherwise it will be reused for today\'s check-in.';
+        note.style.display = '';
+        updateSubmitState();
+      }
+    })
+    .catch(function () {
+      // Silent — check-in still works fine with a normal blank capture flow.
+    });
 }
 
 // Group rentals / multiple renters on one booking sometimes need more than
@@ -103,7 +134,6 @@ function buildTile(tile) {
   var input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
   input.hidden = true;
   input.id = 'input-' + tile.key;
   input.addEventListener('change', function (e) {
@@ -147,12 +177,25 @@ function renderTile(key) {
   var inner = document.getElementById('inner-' + key);
   var status = document.getElementById('status-' + key);
 
-  inner.classList.remove('is-empty', 'is-uploading', 'is-success', 'is-error');
+  inner.classList.remove('is-empty', 'is-uploading', 'is-success', 'is-error', 'is-onfile');
 
   if (state.status === 'empty') {
     inner.classList.add('is-empty');
-    inner.innerHTML = '<div class="checkin-tile-placeholder">' + PLACEHOLDER_ICON + '<span>Tap to take photo</span></div>';
+    inner.innerHTML = '<div class="checkin-tile-placeholder">' + PLACEHOLDER_ICON + '<span>Tap to take photo or upload</span></div>';
     status.innerHTML = '';
+    return;
+  }
+
+  if (state.status === 'onfile') {
+    inner.classList.add('is-onfile');
+    inner.innerHTML = '<div class="checkin-tile-placeholder">' + PLACEHOLDER_ICON + '<span>On file</span></div>';
+    status.innerHTML =
+      '<span class="checkin-status-onfile">On file' + (state.onFileDate ? ' since ' + escapeHtml(state.onFileDate) : '') + '</span>' +
+      '<button type="button" class="checkin-retake-btn" data-key="' + key + '">Update</button>';
+    status.querySelector('.checkin-retake-btn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      resetTile(key);
+    });
     return;
   }
 
@@ -298,7 +341,15 @@ function uploadTile(key) {
 }
 
 function allPhotosUploaded_() {
-  return TILES.every(function (t) { return tileState[t.key].status === 'success'; });
+  return TILES.every(function (t) {
+    var status = tileState[t.key].status;
+    return status === 'success' || status === 'onfile';
+  });
+}
+
+function tilesKeptOnFile_() {
+  return TILES.filter(function (t) { return tileState[t.key].status === 'onfile'; })
+    .map(function (t) { return t.key; });
 }
 
 function waiverFieldsValid_() {
@@ -451,6 +502,7 @@ function submitWaiver() {
   var payload = {
     action: 'submitCheckinWaiver',
     row: parseInt(rentalRow, 10),
+    keepOnFile: tilesKeptOnFile_(),
     name: document.getElementById('waiverName').value.trim(),
     company: document.getElementById('waiverCompany').value.trim(),
     address: document.getElementById('waiverAddress').value.trim(),

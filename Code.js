@@ -57,6 +57,9 @@ function doGet(e) {
     if (action === 'getStudioHealth') {
       return jsonOutput_({ ok: true, data: getStudioHealth() });
     }
+    if (action === 'getCheckinOnFile') {
+      return jsonOutput_({ ok: true, data: getCheckinOnFile(parseInt(e.parameter.row, 10)) });
+    }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return jsonOutput_({ ok: false, error: err.message });
@@ -402,6 +405,81 @@ function uploadCheckinPhoto(rowNumber, photoType, mimeType, dataBase64) {
   return { fileName: filename, fileId: file.getId(), folderId: folder.getId() };
 }
 
+// Regulars shouldn't have to re-photograph a still-valid ID/card every visit.
+// Matches this row's customer (by Invitee Email + Invitee Name, both read
+// from the bookings tab itself — never taken from client input) against
+// every other booking row, finds their most recently completed check-in, and
+// — only if that completion is within the last 6 months — returns which of
+// the four core photo tiles are actually still sitting in that old booking's
+// Drive folder. Used both to tell the check-in page what to offer as "on
+// file" and, on submit, to re-verify before copying anything forward.
+function findCheckinOnFile_(rowNumber) {
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const thisRow = bookings.find(b => b._row === rowNumber);
+  const email = thisRow ? (thisRow['Invitee Email'] || '').toString().trim().toLowerCase() : '';
+  const name = thisRow ? fullName_(thisRow).trim().toLowerCase() : '';
+  if (!email || !name || name === '(no name)') return null;
+
+  let bestDate = null;
+  let bestFolderId = null;
+  bookings.forEach(b => {
+    if (b._row === rowNumber) return;
+    const bEmail = (b['Invitee Email'] || '').toString().trim().toLowerCase();
+    const bName = fullName_(b).trim().toLowerCase();
+    if (bEmail !== email || bName !== name) return;
+    const completedDate = parseDateValue_(b[CHECKIN_COMPLETED_COL]);
+    const folderId = b[CHECKIN_FOLDER_COL];
+    if (!completedDate || !folderId) return;
+    if (!bestDate || completedDate.getTime() > bestDate.getTime()) {
+      bestDate = completedDate;
+      bestFolderId = folderId;
+    }
+  });
+
+  if (!bestDate || !bestFolderId) return null;
+
+  const expiresAt = new Date(bestDate.getTime());
+  expiresAt.setMonth(expiresAt.getMonth() + 6);
+  if (Date.now() > expiresAt.getTime()) return null;
+
+  let folder;
+  try {
+    folder = DriveApp.getFolderById(bestFolderId);
+  } catch (err) {
+    return null;
+  }
+
+  const tiles = {};
+  Object.keys(CHECKIN_PHOTO_FILENAMES).forEach(function (key) {
+    const files = folder.getFilesByName(CHECKIN_PHOTO_FILENAMES[key]);
+    if (files.hasNext()) tiles[key] = { fileId: files.next().getId() };
+  });
+  if (!Object.keys(tiles).length) return null;
+
+  return { dateLabel: formatDate_(bestDate, 'MMM d, yyyy'), tiles: tiles };
+}
+
+// GET ?action=getCheckinOnFile&row=123 — read-only, called by the check-in
+// page on load to upgrade tiles from blank to "on file" where applicable.
+function getCheckinOnFile(rowNumber) {
+  return findCheckinOnFile_(rowNumber) || { dateLabel: '', tiles: {} };
+}
+
+// Copies a photo the customer chose to keep from a prior booking's folder
+// into the current one, under the standard filename for photoType — same
+// overwrite-on-retake behavior as uploadCheckinPhoto. Called from
+// submitCheckinWaiver only after findCheckinOnFile_ has re-verified the
+// source file itself, never on a client-supplied file ID.
+function copyCheckinPhotoFromFile_(folder, photoType, sourceFileId) {
+  const filename = checkinPhotoFilename_(photoType);
+  if (!filename) throw new Error('Unknown photo type: ' + photoType);
+  const existing = folder.getFilesByName(filename);
+  while (existing.hasNext()) existing.next().setTrashed(true);
+  const sourceFile = DriveApp.getFileById(sourceFileId);
+  const copy = sourceFile.makeCopy(filename, folder);
+  return { fileName: filename, fileId: copy.getId(), folderId: folder.getId() };
+}
+
 // One-time setup utility — run manually from the Apps Script editor (Run >
 // setupCheckinFolderColumn). Adds the "Checkin Folder ID" header to the
 // bookings tab if it isn't already there. Safe to re-run — a no-op once the
@@ -522,6 +600,19 @@ function submitCheckinWaiver(body) {
   if (!body.waiverSignatureBase64) throw new Error('Missing Waiver of Liability signature');
 
   const folder = getOrCreateCheckinFolder_(rowNumber);
+
+  // Tiles the customer left as "on file" instead of retaking — re-verify
+  // against the same 6-month/email+name check (never trust a client-supplied
+  // file ID) and copy the still-valid photo forward into this booking's own
+  // folder so it's self-contained just like a freshly-uploaded one.
+  if (body.keepOnFile && body.keepOnFile.length) {
+    const onFile = findCheckinOnFile_(rowNumber);
+    body.keepOnFile.forEach(function (key) {
+      const tile = onFile && onFile.tiles[key];
+      if (!tile) throw new Error('ID/card on file for "' + key + '" could not be verified — please retake that photo.');
+      copyCheckinPhotoFromFile_(folder, key, tile.fileId);
+    });
+  }
 
   const agreementSigBlob = saveSignatureFile_(folder, 'rental-agreement-signature.png', body.agreementSignatureBase64);
   const waiverSigBlob = saveSignatureFile_(folder, 'waiver-of-liability-signature.png', body.waiverSignatureBase64);
