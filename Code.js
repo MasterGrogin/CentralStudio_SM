@@ -10,6 +10,10 @@ const CONFIG = {
   CHECKIN_PARENT_FOLDER_ID: '1h1CEAKVJEdzIKUg9_hviLD6EzPGN3S1U',
   // Where the "customer finished uploading ID/card photos" notification goes.
   CHECKIN_NOTIFY_EMAIL: 'info@centralstudioalbany.com',
+  // Sheet tab that logs one row per additional-guest ID check-in (see
+  // web/guest-checkin.html). Auto-created with headers on first use by
+  // getOrCreateGuestCheckinSheet_ — no manual setup step needed.
+  GUEST_CHECKINS_TAB: 'Guest Checkins',
 };
 
 // One-time manual step: in the Apps Script editor, select this function in
@@ -86,6 +90,9 @@ function doPost(e) {
     }
     if (body.action === 'submitCheckinWaiver') {
       return jsonOutput_({ ok: true, data: submitCheckinWaiver(body) });
+    }
+    if (body.action === 'submitGuestCheckin') {
+      return jsonOutput_({ ok: true, data: submitGuestCheckin(body) });
     }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + body.action });
   } catch (err) {
@@ -629,6 +636,88 @@ function submitCheckinWaiver(body) {
   notifyCheckinComplete_(rowNumber, sheet, headers, lastCol, pdfFile, folder);
 
   return { row: rowNumber, waiverPdfUrl: pdfFile.getUrl() };
+}
+
+const GUEST_CHECKIN_HEADERS_ = [
+  'Timestamp', 'Booking Row', 'Renter Name', 'Guest #',
+  'Guest First Name', 'Guest Last Name', 'Guest Email', 'Guest Phone', 'Folder ID'
+];
+
+// Returns the "Guest Checkins" tab, creating it with headers the first time
+// it's needed — no manual setup step required (unlike the check-in
+// folder/completed columns above, which predate this convention). One row
+// per additional-guest ID upload; this tab is also how staff see "how many
+// guests have done this" — open the tab and count/filter rows, no dashboard
+// wiring needed.
+function getOrCreateGuestCheckinSheet_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  let sheet = ss.getSheetByName(CONFIG.GUEST_CHECKINS_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.GUEST_CHECKINS_TAB);
+    sheet.getRange(1, 1, 1, GUEST_CHECKIN_HEADERS_.length).setValues([GUEST_CHECKIN_HEADERS_]);
+  }
+  return sheet;
+}
+
+// Guests for the same booking are numbered 1, 2, 3... in the order they
+// check in, purely for human-readable filenames/labels — counts existing
+// rows for this booking row rather than storing a separate counter anywhere.
+function nextGuestIndex_(sheet, rowNumber) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 1;
+  const bookingRows = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  let count = 0;
+  bookingRows.forEach(function (r) { if (Number(r[0]) === rowNumber) count++; });
+  return count + 1;
+}
+
+// POST action=submitGuestCheckin — the lightweight companion flow for people
+// attending a session who aren't the primary renter: no credit card, no
+// rental agreement/waiver, just contact info + a photo ID (front & back).
+// Saved into the SAME Drive folder as the primary renter's check-in photos
+// (via getOrCreateCheckinFolder_) so everything for a booking lives in one
+// place, and logged as its own row in the Guest Checkins tab. Deliberately
+// does not call notifyCheckinComplete_ — guest check-ins are not emailed;
+// staff review them in the Drive folder / Guest Checkins tab instead.
+function submitGuestCheckin(body) {
+  const rowNumber = body.row;
+  ['firstName', 'lastName', 'email', 'phone'].forEach(function (key) {
+    if (!body[key] || !String(body[key]).trim()) throw new Error('Missing required field: ' + key);
+  });
+  if (!body.idFrontBase64) throw new Error('Missing photo ID (front)');
+  if (!body.idBackBase64) throw new Error('Missing photo ID (back)');
+
+  const folder = getOrCreateCheckinFolder_(rowNumber);
+  const guestSheet = getOrCreateGuestCheckinSheet_();
+  const guestIndex = nextGuestIndex_(guestSheet, rowNumber);
+  const mimeType = body.mimeType || 'image/jpeg';
+
+  ['idFrontBase64', 'idBackBase64'].forEach(function (field, i) {
+    const side = i === 0 ? 'front' : 'back';
+    const filename = 'guest' + guestIndex + '-id-' + side + '.jpg';
+    const existing = folder.getFilesByName(filename);
+    while (existing.hasNext()) existing.next().setTrashed(true);
+    const blob = Utilities.newBlob(Utilities.base64Decode(body[field]), mimeType, filename);
+    folder.createFile(blob);
+  });
+
+  const bookings = readRows_(CONFIG.BOOKINGS_TAB);
+  const thisRow = bookings.find(b => b._row === rowNumber);
+  const renterName = thisRow ? fullName_(thisRow) : '';
+
+  guestSheet.appendRow([
+    new Date(),
+    rowNumber,
+    renterName,
+    guestIndex,
+    String(body.firstName).trim(),
+    String(body.lastName).trim(),
+    String(body.email).trim(),
+    String(body.phone).trim(),
+    folder.getId()
+  ]);
+
+  return { row: rowNumber, guestIndex: guestIndex, folderId: folder.getId() };
 }
 
 // Saves one signature PNG into the booking's check-in folder, overwriting

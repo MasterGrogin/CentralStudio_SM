@@ -432,6 +432,27 @@ h2 {
   padding: 16px;
 }
 
+.checkin-guest-link-section {
+  margin-top: 24px;
+  background: var(--card-bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.checkin-guest-link-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.checkin-guest-link-fallback {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.checkin-guest-link-fallback .modal-input { flex: 1; font-size: 12px; }
+
 .checkin-section-title {
   font-size: 16px;
   margin: 0 0 12px;

@@ -68,6 +68,57 @@ function init() {
   initWaiver();
   updateSubmitState();
   loadCheckinOnFile_();
+  initGuestLink_(params);
+}
+
+// Builds the shareable guest-checkin link (same booking row, so guest ID
+// photos land in this booking's Drive folder) and wires up the Share button
+// — Web Share API where available (so it drops straight into Messages/etc.
+// on a phone), falling back to a copy-to-clipboard text field on devices/
+// browsers that don't support navigator.share.
+function initGuestLink_(params) {
+  var guestQuery = '?row=' + encodeURIComponent(rentalRow) +
+    '&name=' + encodeURIComponent(params.name) +
+    '&date=' + encodeURIComponent(params.date) +
+    '&time=' + encodeURIComponent(params.time);
+  var guestUrl = new URL('guest-checkin.html' + guestQuery, window.location.href).toString();
+
+  var shareBtn = document.getElementById('shareGuestLinkBtn');
+  var fallback = document.getElementById('guestLinkFallback');
+  var input = document.getElementById('guestLinkInput');
+  var copyBtn = document.getElementById('copyGuestLinkBtn');
+
+  shareBtn.addEventListener('click', function () {
+    if (navigator.share) {
+      navigator.share({
+        title: 'Central Studio Guest Check-In',
+        text: 'Upload your ID for our studio session:',
+        url: guestUrl
+      }).catch(function () { /* user cancelled share — nothing to do */ });
+      return;
+    }
+    input.value = guestUrl;
+    fallback.style.display = '';
+    input.focus();
+    input.select();
+  });
+
+  copyBtn.addEventListener('click', function () {
+    var restore = 'Copy';
+    function showCopied() {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function () { copyBtn.textContent = restore; }, 1500);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(guestUrl).then(showCopied).catch(function () {
+        input.select();
+        try { document.execCommand('copy'); showCopied(); } catch (err) { /* manual select/copy still works */ }
+      });
+    } else {
+      input.select();
+      try { document.execCommand('copy'); showCopied(); } catch (err) { /* manual select/copy still works */ }
+    }
+  });
 }
 
 // Looks up whether this customer already has a still-valid (<=6 months old)

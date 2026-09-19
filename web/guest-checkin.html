@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guest Check-in</title>
+<link rel="icon" href="icon.jpg">
+<link rel="apple-touch-icon" href="icon.jpg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Guest Check-in">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="checkin-app">
+    <header>
+      <img id="brandLogo" src="logo.png" alt="Central Studio SM" class="brand-logo">
+      <h1>Guest Check-in</h1>
+    </header>
+
+    <div id="guestMissingRow" class="error-box" style="display:none;">
+      This link is missing booking info. Ask whoever sent it to you to resend it from the Check-in page.
+    </div>
+
+    <div id="guestBody" style="display:none;">
+      <div class="checkin-summary">
+        <div class="checkin-summary-name" id="guestSummaryName"></div>
+        <div class="checkin-summary-date" id="guestSummaryDate"></div>
+      </div>
+
+      <p class="checkin-guest-link-text">You're checking in as a guest for this session. We just need your contact info and a photo ID (front &amp; back) — no credit card or signature required.</p>
+
+      <div class="checkin-field-row">
+        <div class="checkin-field">
+          <label class="modal-label" for="guestFirstName">First Name *</label>
+          <input class="modal-input" type="text" id="guestFirstName" autocomplete="given-name">
+        </div>
+        <div class="checkin-field">
+          <label class="modal-label" for="guestLastName">Last Name *</label>
+          <input class="modal-input" type="text" id="guestLastName" autocomplete="family-name">
+        </div>
+      </div>
+      <div class="checkin-field">
+        <label class="modal-label" for="guestEmail">Email *</label>
+        <input class="modal-input" type="email" id="guestEmail" autocomplete="email">
+      </div>
+      <div class="checkin-field">
+        <label class="modal-label" for="guestPhone">Phone *</label>
+        <input class="modal-input" type="tel" id="guestPhone" autocomplete="tel">
+      </div>
+
+      <div id="guestGrid" class="checkin-grid"></div>
+
+      <div id="guestError" class="error-box" style="display:none; margin-top:14px;"></div>
+
+      <button type="button" id="completeGuestBtn" class="action-btn call checkin-complete-btn" disabled>Complete Guest Check-In</button>
+
+      <div id="guestDoneBanner" class="checkin-done-banner" style="display:none;">
+        Thanks — you're all set! You can close this tab.
+      </div>
+    </div>
+
+  </div>
+
+  <script src="guest-checkin.js"></script>
+</body>
+</html>
