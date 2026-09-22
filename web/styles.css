@@ -187,6 +187,28 @@ h2 {
   vertical-align: middle;
 }
 
+.checkin-status-badge {
+  cursor: pointer;
+}
+
+.badge-checkin-done {
+  background: var(--gain);
+}
+
+.badge-checkin-pending {
+  background: var(--gauge-warn);
+}
+
+.checkin-guest-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.checkin-guest-list li {
+  margin-bottom: 4px;
+}
+
 .card-date {
   font-size: 13px;
   font-weight: 600;

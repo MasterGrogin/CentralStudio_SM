@@ -194,6 +194,9 @@ function buildBookingCard(b, isVettedList) {
   card.className = 'card ' + (isVettedList ? 'is-called' : 'is-needs-call');
 
   var badge = b.isRegular ? '<span class="badge">Regular (' + b.bookingsCount + ')</span>' : '';
+  var checkinBadge = '<span class="badge checkin-status-badge ' +
+    (b.checkinCompleted ? 'badge-checkin-done' : 'badge-checkin-pending') + '">' +
+    (b.checkinCompleted ? 'Checked In' : 'Not Checked In') + '</span>';
 
   var bookedMetaParts = [];
   if (b.dateBooked) bookedMetaParts.push('Booked ' + escapeHtml(b.dateBooked));
@@ -203,7 +206,7 @@ function buildBookingCard(b, isVettedList) {
   summary.className = 'card-summary';
   summary.innerHTML =
     '<div class="card-top">' +
-      '<div><span class="card-name">' + escapeHtml(b.name) + '</span>' + badge + '</div>' +
+      '<div><span class="card-name">' + escapeHtml(b.name) + '</span>' + badge + checkinBadge + '</div>' +
       '<span class="expand-caret">&#9656;</span>' +
     '</div>' +
     '<div class="card-date">Rental: ' + escapeHtml(b.eventDate) + (b.eventTime ? ' &middot; ' + escapeHtml(b.eventTime) : '') + '</div>' +
@@ -300,10 +303,15 @@ function buildBookingCard(b, isVettedList) {
   }
 
   summary.addEventListener('click', function (e) {
-    if (e.target.closest('.phone-details')) return;
+    if (e.target.closest('.phone-details') || e.target.closest('.checkin-status-badge')) return;
     var isOpen = detail.style.display !== 'none';
     detail.style.display = isOpen ? 'none' : '';
     summary.querySelector('.expand-caret').innerHTML = isOpen ? '&#9656;' : '&#9662;';
+  });
+
+  summary.querySelector('.checkin-status-badge').addEventListener('click', function (e) {
+    e.stopPropagation();
+    openCheckinStatusModal(b);
   });
 
   card.appendChild(summary);
@@ -500,6 +508,43 @@ paymentSubmitBtn.addEventListener('click', function () {
 });
 
 paymentCancelBtn.addEventListener('click', closePaymentModal);
+
+var checkinStatusModalOverlay = document.getElementById('checkinStatusModal');
+var checkinStatusName = document.getElementById('checkinStatusName');
+var checkinStatusSummary = document.getElementById('checkinStatusSummary');
+var checkinStatusGuestsWrap = document.getElementById('checkinStatusGuestsWrap');
+var checkinStatusGuestList = document.getElementById('checkinStatusGuestList');
+var checkinStatusCloseBtn = document.getElementById('checkinStatusClose');
+
+function openCheckinStatusModal(b) {
+  checkinStatusName.textContent = b.name || '(no name)';
+  checkinStatusSummary.textContent = b.checkinCompleted
+    ? 'Check-in completed ' + b.checkinCompletedDate
+    : 'Check-in not yet completed.';
+  checkinStatusGuestsWrap.style.display = 'none';
+  checkinStatusGuestList.innerHTML = '';
+  checkinStatusModalOverlay.style.display = 'flex';
+
+  fetch(API_URL + '?action=getGuestCheckins&row=' + encodeURIComponent(b.row))
+    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok) { showError(res.error); return; }
+      if (!res.data.length) return;
+      checkinStatusGuestsWrap.style.display = '';
+      res.data.forEach(function (g) {
+        var li = document.createElement('li');
+        li.textContent = g.name + (g.date ? ' — ' + g.date : '');
+        checkinStatusGuestList.appendChild(li);
+      });
+    })
+    .catch(function (err) { showError(err.message || err); });
+}
+
+function closeCheckinStatusModal() {
+  checkinStatusModalOverlay.style.display = 'none';
+}
+
+checkinStatusCloseBtn.addEventListener('click', closeCheckinStatusModal);
 
 var chrisPaymentModalOverlay = document.getElementById('chrisPaymentModal');
 var chrisPaymentModalText = document.getElementById('chrisPaymentModalText');

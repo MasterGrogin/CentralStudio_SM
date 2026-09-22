@@ -64,6 +64,9 @@ function doGet(e) {
     if (action === 'getCheckinOnFile') {
       return jsonOutput_({ ok: true, data: getCheckinOnFile(parseInt(e.parameter.row, 10)) });
     }
+    if (action === 'getGuestCheckins') {
+      return jsonOutput_({ ok: true, data: getGuestCheckinsForBooking(parseInt(e.parameter.row, 10)) });
+    }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return jsonOutput_({ ok: false, error: err.message });
@@ -224,6 +227,8 @@ function getDashboardData() {
       notes: b['Notes'] || '',
       called: !!b['Date Called'],
       dateCalled: formatDate_(b['Date Called'], 'MMM d, yyyy'),
+      checkinCompleted: !!b[CHECKIN_COMPLETED_COL],
+      checkinCompletedDate: formatDate_(b[CHECKIN_COMPLETED_COL], 'MMM d, yyyy h:mm a'),
       completed: !!b['Total Paid'],
       finalPayment: b['Total Paid'] || '',
       isRegular: email ? emailCounts[email] > 1 : false,
@@ -718,6 +723,24 @@ function submitGuestCheckin(body) {
   ]);
 
   return { row: rowNumber, guestIndex: guestIndex, folderId: folder.getId() };
+}
+
+// GET action=getGuestCheckins — feeds the dashboard's check-in status popup:
+// just the guest names/timestamps for this booking, no photos or folder IDs.
+function getGuestCheckinsForBooking(rowNumber) {
+  const sheet = SpreadsheetApp.openById(CONFIG.SHEET_ID).getSheetByName(CONFIG.GUEST_CHECKINS_TAB);
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const rows = sheet.getRange(2, 1, lastRow - 1, GUEST_CHECKIN_HEADERS_.length).getValues();
+  return rows
+    .filter(function (r) { return Number(r[1]) === rowNumber; })
+    .map(function (r) {
+      return {
+        name: (r[4] + ' ' + r[5]).toString().trim(),
+        date: formatDate_(r[0], 'MMM d, yyyy h:mm a')
+      };
+    });
 }
 
 // Saves one signature PNG into the booking's check-in folder, overwriting
