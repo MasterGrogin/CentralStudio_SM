@@ -10,7 +10,10 @@ var TILES = [
 // Keeps the actual photo blob out of the DOM/state object printed anywhere —
 // tileState only ever holds what's needed to render + retry, never gets logged.
 var tileState = {};
-var rentalRow = null;
+// { bookingId } from new links; { row, bookingName } from links made before
+// Booking IDs existed (the server only honors those if the row still holds
+// that renter — see resolveBooking_ in Code.js).
+var bookingRef = null;
 var extraIdCount = 0;
 
 var WAIVER_REQUIRED_FIELDS = ['waiverName', 'waiverAddress', 'waiverCity', 'waiverState', 'waiverZip', 'waiverPhone', 'waiverEmail'];
@@ -30,6 +33,7 @@ function escapeHtml(str) {
 function getParams_() {
   var params = new URLSearchParams(window.location.search);
   return {
+    id: params.get('id'),
     row: params.get('row'),
     name: params.get('name') || '',
     date: params.get('date') || '',
@@ -40,11 +44,13 @@ function getParams_() {
 
 function init() {
   var params = getParams_();
-  if (!params.row || isNaN(parseInt(params.row, 10))) {
+  if (!params.id && (!params.row || isNaN(parseInt(params.row, 10)))) {
     document.getElementById('checkinMissingRow').style.display = '';
     return;
   }
-  rentalRow = params.row;
+  bookingRef = params.id
+    ? { bookingId: params.id }
+    : { row: parseInt(params.row, 10), bookingName: params.name };
 
   document.getElementById('checkinBody').style.display = '';
   document.getElementById('checkinName').textContent = params.name || '(no name on file)';
@@ -77,7 +83,9 @@ function init() {
 // on a phone), falling back to a copy-to-clipboard text field on devices/
 // browsers that don't support navigator.share.
 function initGuestLink_(params) {
-  var guestQuery = '?row=' + encodeURIComponent(rentalRow) +
+  var guestQuery = (bookingRef.bookingId
+      ? '?id=' + encodeURIComponent(bookingRef.bookingId)
+      : '?row=' + encodeURIComponent(bookingRef.row)) +
     '&name=' + encodeURIComponent(params.name) +
     '&date=' + encodeURIComponent(params.date) +
     '&time=' + encodeURIComponent(params.time);
@@ -129,7 +137,10 @@ function initGuestLink_(params) {
 // "on file" in place, each still individually replaceable via its own
 // Update button.
 function loadCheckinOnFile_() {
-  return fetch(API_URL + '?action=getCheckinOnFile&row=' + encodeURIComponent(rentalRow))
+  var refQuery = bookingRef.bookingId
+    ? '&bookingId=' + encodeURIComponent(bookingRef.bookingId)
+    : '&row=' + encodeURIComponent(bookingRef.row) + '&bookingName=' + encodeURIComponent(bookingRef.bookingName);
+  return fetch(API_URL + '?action=getCheckinOnFile' + refQuery)
     .then(function (res) { return res.json(); })
     .then(function (res) {
       if (!res.ok || !res.data || !res.data.tiles) return;
@@ -365,7 +376,9 @@ function uploadTile(key) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'uploadCheckinPhoto',
-        row: parseInt(rentalRow, 10),
+        bookingId: bookingRef.bookingId,
+        row: bookingRef.row,
+        bookingName: bookingRef.bookingName,
         photoType: key,
         mimeType: 'image/jpeg',
         dataBase64: base64
@@ -552,7 +565,9 @@ function submitWaiver() {
 
   var payload = {
     action: 'submitCheckinWaiver',
-    row: parseInt(rentalRow, 10),
+    bookingId: bookingRef.bookingId,
+    row: bookingRef.row,
+    bookingName: bookingRef.bookingName,
     keepOnFile: tilesKeptOnFile_(),
     name: document.getElementById('waiverName').value.trim(),
     company: document.getElementById('waiverCompany').value.trim(),

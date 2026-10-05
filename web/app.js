@@ -244,7 +244,10 @@ function buildBookingCard(b, isVettedList) {
 
   var actions = detail.querySelector('.card-actions');
 
-  var checkinQuery = '?row=' + encodeURIComponent(b.row) +
+  // Keyed by the permanent Booking ID, not the sheet row — rows shift when
+  // the bookings tab is sorted, and a row-based link would then land on
+  // someone else's rental. name/date/time are display-only on the page.
+  var checkinQuery = '?id=' + encodeURIComponent(b.bookingId) +
     '&name=' + encodeURIComponent(b.name) +
     '&date=' + encodeURIComponent(b.eventDate) +
     '&time=' + encodeURIComponent(b.eventTime) +
@@ -286,19 +289,19 @@ function buildBookingCard(b, isVettedList) {
     var undoBtn = document.createElement('button');
     undoBtn.className = 'action-btn undo';
     undoBtn.textContent = 'Undo Call';
-    undoBtn.onclick = function () { toggleBooking(b.row, false, undoBtn); };
+    undoBtn.onclick = function () { toggleBooking(b.bookingId, false, undoBtn); };
     actions.appendChild(undoBtn);
 
     var completeBtn = document.createElement('button');
     completeBtn.className = 'action-btn call';
     completeBtn.textContent = 'Complete & Close';
-    completeBtn.onclick = function () { openPaymentModal(b.row, b.name); };
+    completeBtn.onclick = function () { openPaymentModal(b.bookingId, b.name); };
     actions.appendChild(completeBtn);
   } else {
     var callBtn = document.createElement('button');
     callBtn.className = 'action-btn call';
     callBtn.textContent = 'Mark Called';
-    callBtn.onclick = function () { toggleBooking(b.row, true, callBtn); };
+    callBtn.onclick = function () { toggleBooking(b.bookingId, true, callBtn); };
     actions.appendChild(callBtn);
   }
 
@@ -328,15 +331,15 @@ function postAction(payload) {
   }).then(function (res) { return res.json(); });
 }
 
-function toggleBooking(row, shouldBeCalled, btn) {
-  if (inFlight[row]) return;
-  inFlight[row] = true;
+function toggleBooking(bookingId, shouldBeCalled, btn) {
+  if (inFlight[bookingId]) return;
+  inFlight[bookingId] = true;
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
-  postAction({ action: 'toggleBookingCalled', row: row, value: shouldBeCalled })
+  postAction({ action: 'toggleBookingCalled', bookingId: bookingId, value: shouldBeCalled })
     .then(function (res) {
-      inFlight[row] = false;
+      inFlight[bookingId] = false;
       if (res.ok) {
         renderDashboard(res.data);
       } else {
@@ -345,7 +348,7 @@ function toggleBooking(row, shouldBeCalled, btn) {
       }
     })
     .catch(function (err) {
-      inFlight[row] = false;
+      inFlight[bookingId] = false;
       btn.disabled = false;
       showError(err.message || err);
     });
@@ -462,10 +465,10 @@ var paymentModalName = document.getElementById('paymentModalName');
 var paymentAmountInput = document.getElementById('paymentAmount');
 var paymentSubmitBtn = document.getElementById('paymentSubmit');
 var paymentCancelBtn = document.getElementById('paymentCancel');
-var paymentRow = null;
+var paymentBookingId = null;
 
-function openPaymentModal(row, name) {
-  paymentRow = row;
+function openPaymentModal(bookingId, name) {
+  paymentBookingId = bookingId;
   paymentModalName.textContent = name || '(no name)';
   paymentAmountInput.value = '';
   paymentModalOverlay.style.display = 'flex';
@@ -473,23 +476,23 @@ function openPaymentModal(row, name) {
 
 function closePaymentModal() {
   paymentModalOverlay.style.display = 'none';
-  paymentRow = null;
+  paymentBookingId = null;
 }
 
 paymentSubmitBtn.addEventListener('click', function () {
-  if (paymentRow === null) return;
+  if (paymentBookingId === null) return;
   var amount = paymentAmountInput.value.trim();
   if (!amount) {
     showError('Enter a payment amount before closing this booking.');
     return;
   }
-  var row = paymentRow;
-  var key = 'pay-' + row;
+  var bookingId = paymentBookingId;
+  var key = 'pay-' + bookingId;
   if (inFlight[key]) return;
   inFlight[key] = true;
   paymentSubmitBtn.disabled = true;
 
-  postAction({ action: 'completeBooking', row: row, amount: amount })
+  postAction({ action: 'completeBooking', bookingId: bookingId, amount: amount })
     .then(function (res) {
       inFlight[key] = false;
       paymentSubmitBtn.disabled = false;
@@ -525,7 +528,7 @@ function openCheckinStatusModal(b) {
   checkinStatusGuestList.innerHTML = '';
   checkinStatusModalOverlay.style.display = 'flex';
 
-  fetch(API_URL + '?action=getGuestCheckins&row=' + encodeURIComponent(b.row))
+  fetch(API_URL + '?action=getGuestCheckins&bookingId=' + encodeURIComponent(b.bookingId))
     .then(function (res) { return res.json(); })
     .then(function (res) {
       if (!res.ok) { showError(res.error); return; }

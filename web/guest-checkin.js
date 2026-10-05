@@ -10,13 +10,17 @@ var REQUIRED_FIELDS = ['guestFirstName', 'guestLastName', 'guestEmail', 'guestPh
 // Keeps the actual photo blob out of anything printed/logged — same
 // convention as checkin.js.
 var tileState = {};
-var rentalRow = null;
+// { bookingId } from new links; { row, bookingName } from links made before
+// Booking IDs existed (the server only honors those if the row still holds
+// that renter — see resolveBooking_ in Code.js).
+var bookingRef = null;
 var submitting = false;
 var submitted = false;
 
 function getParams_() {
   var params = new URLSearchParams(window.location.search);
   return {
+    id: params.get('id'),
     row: params.get('row'),
     name: params.get('name') || '',
     date: params.get('date') || '',
@@ -26,11 +30,13 @@ function getParams_() {
 
 function init() {
   var params = getParams_();
-  if (!params.row || isNaN(parseInt(params.row, 10))) {
+  if (!params.id && (!params.row || isNaN(parseInt(params.row, 10)))) {
     document.getElementById('guestMissingRow').style.display = '';
     return;
   }
-  rentalRow = params.row;
+  bookingRef = params.id
+    ? { bookingId: params.id }
+    : { row: parseInt(params.row, 10), bookingName: params.name };
 
   document.getElementById('guestBody').style.display = '';
   document.getElementById('guestSummaryName').textContent = params.name ? 'Guest of ' + params.name : 'Guest Check-in';
@@ -228,7 +234,9 @@ function submitGuestCheckin() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'submitGuestCheckin',
-        row: parseInt(rentalRow, 10),
+        bookingId: bookingRef.bookingId,
+        row: bookingRef.row,
+        bookingName: bookingRef.bookingName,
         firstName: document.getElementById('guestFirstName').value.trim(),
         lastName: document.getElementById('guestLastName').value.trim(),
         email: document.getElementById('guestEmail').value.trim(),

@@ -62,10 +62,10 @@ function doGet(e) {
       return jsonOutput_({ ok: true, data: getStudioHealth() });
     }
     if (action === 'getCheckinOnFile') {
-      return jsonOutput_({ ok: true, data: getCheckinOnFile(parseInt(e.parameter.row, 10)) });
+      return jsonOutput_({ ok: true, data: getCheckinOnFile(resolveBooking_(e.parameter).row) });
     }
     if (action === 'getGuestCheckins') {
-      return jsonOutput_({ ok: true, data: getGuestCheckinsForBooking(parseInt(e.parameter.row, 10)) });
+      return jsonOutput_({ ok: true, data: getGuestCheckinsForBooking(resolveBooking_(e.parameter)) });
     }
     return jsonOutput_({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
@@ -77,10 +77,10 @@ function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
     if (body.action === 'toggleBookingCalled') {
-      return jsonOutput_({ ok: true, data: toggleBookingCalled(body.row, body.value) });
+      return jsonOutput_({ ok: true, data: toggleBookingCalled(resolveBooking_(body).row, body.value) });
     }
     if (body.action === 'completeBooking') {
-      return jsonOutput_({ ok: true, data: completeBooking(body.row, body.amount) });
+      return jsonOutput_({ ok: true, data: completeBooking(resolveBooking_(body).row, body.amount) });
     }
     if (body.action === 'updateInquiry') {
       return jsonOutput_({ ok: true, data: updateInquiry(body.row, body.note, body.close) });
@@ -89,7 +89,7 @@ function doPost(e) {
       return jsonOutput_({ ok: true, data: applyChrisSessionPayment() });
     }
     if (body.action === 'uploadCheckinPhoto') {
-      return jsonOutput_({ ok: true, data: uploadCheckinPhoto(body.row, body.photoType, body.mimeType, body.dataBase64) });
+      return jsonOutput_({ ok: true, data: uploadCheckinPhoto(resolveBooking_(body).row, body.photoType, body.mimeType, body.dataBase64) });
     }
     if (body.action === 'submitCheckinWaiver') {
       return jsonOutput_({ ok: true, data: submitCheckinWaiver(body) });
@@ -128,6 +128,89 @@ function readRows_(tabName) {
     rows.push(obj);
   }
   return rows;
+}
+
+// Permanent per-booking ID. Row numbers shift whenever the bookings tab is
+// sorted or rows are inserted/deleted, so every check-in link and dashboard
+// action identifies a booking by this ID instead, and the server looks up
+// the booking's CURRENT row at request time (resolveBooking_). The column is
+// created automatically and filled in for new rows on every dashboard load
+// (ensureBookingIds_) — never edit or copy/paste these values by hand.
+const BOOKING_ID_COL = 'Booking ID';
+
+function newBookingId_() {
+  return 'CS-' + Utilities.getUuid().replace(/-/g, '').slice(0, 10).toUpperCase();
+}
+
+// Gives every non-blank bookings row that lacks a Booking ID a fresh one,
+// adding the column the first time. One batched read + at most one batched
+// write. Script-locked so two dashboards loading at once can't hand the same
+// row two different IDs.
+function ensureBookingIds_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    let col = headers.indexOf(BOOKING_ID_COL) + 1;
+    if (col === 0) {
+      col = lastCol + 1;
+      sheet.getRange(1, col).setValue(BOOKING_ID_COL);
+    }
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+    const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    const idRange = sheet.getRange(2, col, lastRow - 1, 1);
+    const ids = idRange.getValues();
+    let changed = false;
+    ids.forEach(function (idCell, i) {
+      if (idCell[0] !== '') return;
+      const rowIsBlank = data[i].every(function (v, c) { return c === col - 1 || v === ''; });
+      if (rowIsBlank) return;
+      idCell[0] = newBookingId_();
+      changed = true;
+    });
+    if (changed) idRange.setValues(ids);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Turns the booking reference a request carries into { row, bookingId } for
+// the booking's CURRENT row. Preferred: ref.bookingId. Legacy links/pages
+// built before Booking IDs existed send ref.row (+ ref.bookingName, the
+// renter name from the link — distinct from the waiver's typed `name`); those are only
+// honored if the row still holds the same renter — otherwise the sheet was
+// sorted since the link was made, and we refuse rather than write to the
+// wrong booking.
+function resolveBooking_(ref) {
+  const sheet = getSheet_(CONFIG.BOOKINGS_TAB);
+  const lastCol = sheet.getLastColumn();
+  const lastRow = sheet.getLastRow();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const idCol = headers.indexOf(BOOKING_ID_COL) + 1;
+  const bookingId = (ref.bookingId || '').toString().trim();
+
+  if (bookingId) {
+    if (idCol === 0 || lastRow < 2) throw new Error('Booking not found. Please ask Central Studio for a new link.');
+    const ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+    const matches = [];
+    ids.forEach(function (r, i) { if (String(r[0]).trim() === bookingId) matches.push(i + 2); });
+    if (!matches.length) throw new Error('Booking not found — it may have been cancelled or removed. Please ask Central Studio for a new link.');
+    if (matches.length > 1) throw new Error('Booking ID ' + bookingId + ' appears on more than one row of the bookings tab (rows ' + matches.join(', ') + '). Clear the duplicate so it gets a new ID.');
+    return { row: matches[0], bookingId: bookingId };
+  }
+
+  const row = parseInt(ref.row, 10);
+  const expectedName = (ref.bookingName || '').toString().trim().toLowerCase();
+  const staleMsg = 'This link is out of date. Please ask Central Studio for a new check-in link (or refresh the dashboard).';
+  if (!row || row < 2 || row > lastRow || !expectedName) throw new Error(staleMsg);
+  const rowValues = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
+  const rowObj = {};
+  headers.forEach(function (h, i) { if (h) rowObj[h] = rowValues[i]; });
+  if (fullName_(rowObj).trim().toLowerCase() !== expectedName) throw new Error(staleMsg);
+  return { row: row, bookingId: idCol ? String(rowObj[BOOKING_ID_COL] || '').trim() : '' };
 }
 
 function fullName_(row) {
@@ -172,6 +255,7 @@ const CHRIS_PAID_DATE_COL = 'Session Paid Date';
 const CHRIS_SESSIONS_PER_BLOCK = 25;
 
 function getDashboardData() {
+  ensureBookingIds_();
   const bookings = readRows_(CONFIG.BOOKINGS_TAB);
   const inquiries = readRows_(CONFIG.INQUIRY_TAB);
 
@@ -205,7 +289,7 @@ function getDashboardData() {
     const email = (b['Invitee Email'] || '').toString().trim().toLowerCase();
     const eventDateTime = parseEventDateTime_(b);
     return {
-      row: b._row,
+      bookingId: b[BOOKING_ID_COL] || '',
       name: fullName_(b),
       email: b['Invitee Email'] || '',
       phone: b['Phone'] || '',
@@ -604,7 +688,7 @@ const WAIVER_TEXT_LIABILITY_ = [
 // PDF, saves it alongside the ID/card photos, stamps the row, and emails
 // the studio.
 function submitCheckinWaiver(body) {
-  const rowNumber = body.row;
+  const rowNumber = resolveBooking_(body).row;
   WAIVER_REQUIRED_KEYS_.forEach(function (key) {
     if (!body[key] || !String(body[key]).trim()) throw new Error('Missing required field: ' + key);
   });
@@ -645,8 +729,20 @@ function submitCheckinWaiver(body) {
 
 const GUEST_CHECKIN_HEADERS_ = [
   'Timestamp', 'Booking Row', 'Renter Name', 'Guest #',
-  'Guest First Name', 'Guest Last Name', 'Guest Email', 'Guest Phone', 'Folder ID'
+  'Guest First Name', 'Guest Last Name', 'Guest Email', 'Guest Phone', 'Folder ID',
+  'Booking ID'
 ];
+// "Booking Row" is only a snapshot of where the booking sat at check-in time
+// (it goes stale if the bookings tab is sorted) — "Booking ID" is what links a
+// guest to their booking. Guest rows logged before Booking IDs existed have
+// it blank and fall back to matching on the row (see guestRowMatches_).
+const GUEST_BOOKING_ID_IDX_ = GUEST_CHECKIN_HEADERS_.indexOf('Booking ID');
+
+function guestRowMatches_(r, booking) {
+  const id = String(r[GUEST_BOOKING_ID_IDX_] || '').trim();
+  if (id) return !!booking.bookingId && id === booking.bookingId;
+  return Number(r[1]) === booking.row;
+}
 
 // Returns the "Guest Checkins" tab, creating it with headers the first time
 // it's needed — no manual setup step required (unlike the check-in
@@ -660,19 +756,22 @@ function getOrCreateGuestCheckinSheet_() {
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.GUEST_CHECKINS_TAB);
     sheet.getRange(1, 1, 1, GUEST_CHECKIN_HEADERS_.length).setValues([GUEST_CHECKIN_HEADERS_]);
+  } else if (sheet.getRange(1, GUEST_BOOKING_ID_IDX_ + 1).getValue() !== 'Booking ID') {
+    // Tab predates the Booking ID column — add its header in place.
+    sheet.getRange(1, GUEST_BOOKING_ID_IDX_ + 1).setValue('Booking ID');
   }
   return sheet;
 }
 
 // Guests for the same booking are numbered 1, 2, 3... in the order they
 // check in, purely for human-readable filenames/labels — counts existing
-// rows for this booking row rather than storing a separate counter anywhere.
-function nextGuestIndex_(sheet, rowNumber) {
+// rows for this booking rather than storing a separate counter anywhere.
+function nextGuestIndex_(sheet, booking) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return 1;
-  const bookingRows = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+  const rows = sheet.getRange(2, 1, lastRow - 1, GUEST_CHECKIN_HEADERS_.length).getValues();
   let count = 0;
-  bookingRows.forEach(function (r) { if (Number(r[0]) === rowNumber) count++; });
+  rows.forEach(function (r) { if (guestRowMatches_(r, booking)) count++; });
   return count + 1;
 }
 
@@ -685,7 +784,8 @@ function nextGuestIndex_(sheet, rowNumber) {
 // does not call notifyCheckinComplete_ — guest check-ins are not emailed;
 // staff review them in the Drive folder / Guest Checkins tab instead.
 function submitGuestCheckin(body) {
-  const rowNumber = body.row;
+  const booking = resolveBooking_(body);
+  const rowNumber = booking.row;
   ['firstName', 'lastName', 'email', 'phone'].forEach(function (key) {
     if (!body[key] || !String(body[key]).trim()) throw new Error('Missing required field: ' + key);
   });
@@ -694,7 +794,7 @@ function submitGuestCheckin(body) {
 
   const folder = getOrCreateCheckinFolder_(rowNumber);
   const guestSheet = getOrCreateGuestCheckinSheet_();
-  const guestIndex = nextGuestIndex_(guestSheet, rowNumber);
+  const guestIndex = nextGuestIndex_(guestSheet, booking);
   const mimeType = body.mimeType || 'image/jpeg';
 
   ['idFrontBase64', 'idBackBase64'].forEach(function (field, i) {
@@ -719,7 +819,8 @@ function submitGuestCheckin(body) {
     String(body.lastName).trim(),
     String(body.email).trim(),
     String(body.phone).trim(),
-    folder.getId()
+    folder.getId(),
+    booking.bookingId
   ]);
 
   return { row: rowNumber, guestIndex: guestIndex, folderId: folder.getId() };
@@ -727,14 +828,14 @@ function submitGuestCheckin(body) {
 
 // GET action=getGuestCheckins — feeds the dashboard's check-in status popup:
 // just the guest names/timestamps for this booking, no photos or folder IDs.
-function getGuestCheckinsForBooking(rowNumber) {
+function getGuestCheckinsForBooking(booking) {
   const sheet = SpreadsheetApp.openById(CONFIG.SHEET_ID).getSheetByName(CONFIG.GUEST_CHECKINS_TAB);
   if (!sheet) return [];
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   const rows = sheet.getRange(2, 1, lastRow - 1, GUEST_CHECKIN_HEADERS_.length).getValues();
   return rows
-    .filter(function (r) { return Number(r[1]) === rowNumber; })
+    .filter(function (r) { return guestRowMatches_(r, booking); })
     .map(function (r) {
       return {
         name: (r[4] + ' ' + r[5]).toString().trim(),
